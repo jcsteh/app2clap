@@ -1,0 +1,24 @@
+# App2Clap
+# SConscript for building of the source
+# Author: James Teh <jamie@jantrid.net>
+# Copyright 2025 James Teh
+# License: GNU General Public License version 2.0
+
+Import("env")
+env.Append(CPPPATH=("#deps/clap/include", "#deps/clap-helpers/include"))
+env["CC"] = "clang-cl"
+env["LINK"] = "lld-link"
+env.Append(CXXFLAGS=[
+	"/clang:-std=c++20",
+	"/EHsc",
+])
+# We always want debug symbols.
+env.Append(PDB="${TARGET}.pdb")
+# having symbols usually turns this off, but we have no need for unused symbols.
+env.Append(LINKFLAGS='/OPT:REF')
+env.SharedLibrary(
+	target="app2clap",
+	SHLIBSUFFIX=".clap",
+	source=["main.cpp"],
+	LIBS=["mmdevapi.lib"],
+)
