@@ -13,11 +13,18 @@
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
 #include <mmdeviceapi.h>
+#include <tlhelp32.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <vector>
 
 #include "clap/helpers/plugin.hxx"
+
+#include "resource.h"
+
+EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+#define HINST_THISDLL ((HINSTANCE)&__ImageBase)
 
 class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandler {
 	public:
@@ -84,11 +91,23 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
+		if (!this->_processCombo) {
+			// The GUI isn't initialised yet.
+			return false;
+		}
+		const int procChoice = ComboBox_GetCurSel(this->_processCombo);
+		if (procChoice == CB_ERR) {
+			// The user hasn't chosen a process yet.
+			return false;
+		}
 		AUDIOCLIENT_ACTIVATION_PARAMS params = {
 			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
 		};
-		params.ProcessLoopbackParams.TargetProcessId = 8232;
-		params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+		params.ProcessLoopbackParams.TargetProcessId = this->_pids[procChoice];
+		params.ProcessLoopbackParams.ProcessLoopbackMode =
+			IsDlgButtonChecked(this->_dialog, ID_PROCESS_INCLUDE) ?
+			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
+			PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
 		PROPVARIANT propvar = { .vt = VT_BLOB };
 		propvar.blob.cbSize = sizeof(params);
 		propvar.blob.pBlobData = (BYTE*)&params;
@@ -141,12 +160,18 @@ class App2Clap : public BasePlugin {
 	}
 
 	void deactivate() noexcept  override {
+		if (!this->_client) {
+			return;
+		}
 		this->_client->Stop();
 		this->_capture = nullptr;
 		this->_client = nullptr;
 	}
 
 	clap_process_status process(const clap_process *process) noexcept override {
+		if (!this->_capture) {
+			return CLAP_PROCESS_SLEEP;
+		}
 		BYTE* data;
 		uint32_t f = 0; // How many frames we've sent to the host.
 		if (!this->_buffer.empty()) {
@@ -213,13 +238,96 @@ class App2Clap : public BasePlugin {
 		return CLAP_PROCESS_CONTINUE;
 	}
 
+	bool implementsGui() const noexcept override { return true; }
+
+	bool guiIsApiSupported(const char* api, bool isFloating) noexcept override {
+		return strcmp(api, CLAP_WINDOW_API_WIN32) == 0 && !isFloating;
+	}
+
+	bool guiGetPreferredApi(const char** api, bool* is_floating) noexcept override {
+		*api = CLAP_WINDOW_API_WIN32;
+		*is_floating = false;
+		return true;
+	}
+
+	bool guiCreate(const char *api, bool isFloating) noexcept override {
+		return true;
+	}
+
+	void guiDestroy() noexcept override {
+		DestroyWindow(this->_dialog);
+	}
+
+	bool guiShow() noexcept override {
+		ShowWindow(this->_dialog, SW_SHOW);
+		return true;
+	}
+
+	bool guiHide() noexcept override {
+		ShowWindow(this->_dialog, SW_HIDE);
+		return true;
+	}
+
+	bool guiSetParent(const clap_window* window) noexcept override {
+		// We create the dialog here instead of guiCreate because CreateDialog needs
+		// the parent HWND in order to make a DS_CHILD dialog.
+		this->_dialog = CreateDialog(
+			HINST_THISDLL, MAKEINTRESOURCE(ID_MAIN_DLG),
+			// hack: Use the grandparent so tabbing works in REAPER.
+			GetParent((HWND)window->win32), App2Clap::dialogProc
+		);
+		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
+		this->_processCombo = GetDlgItem(this->_dialog, ID_PROCESS);
+		this->buildProcessList();
+		CheckDlgButton(this->_dialog, ID_PROCESS_INCLUDE, BST_CHECKED);
+		return true;
+	}
+
 	private:
+	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+		auto* plugin = (App2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
+		if (msg == WM_COMMAND) {
+			if (LOWORD(wParam) == ID_REFRESH) {
+				plugin->buildProcessList();
+				return TRUE;
+			} else if (LOWORD(wParam) == ID_APPLY) {
+				// Restart the plugin. We will set up the capture in activate().
+				plugin->_host.host()->request_restart(plugin->_host.host());
+				return TRUE;
+			}
+		}
+		return FALSE;
+	}
+
+	void buildProcessList() {
+		PROCESSENTRY32 entry;
+		entry.dwSize = sizeof(PROCESSENTRY32);
+		HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if (!Process32First(snapshot, &entry)) {
+			CloseHandle(snapshot);
+			return;
+		}
+		this->_pids.clear();
+		ComboBox_ResetContent(this->_processCombo);
+		do {
+			std::ostringstream s;
+			this->_pids.push_back(entry.th32ProcessID);
+			s << entry.szExeFile << " " << entry.th32ProcessID;
+			ComboBox_AddString(this->_processCombo, s.str().c_str());
+		} while (Process32Next(snapshot, &entry));
+		CloseHandle(snapshot);
+	}
+
 	CComPtr<IAudioClient> _client;
 	CComPtr<IAudioCaptureClient> _capture;
 	// A buffer to store audio we've captured but not yet sent to the host.
 	std::vector<BYTE> _buffer;
 	// How many bytes of _buffer we have already consumed.
-	size_t _bufferConsumed;
+	size_t _bufferConsumed = 0;
+	HWND _dialog = nullptr;
+	HWND _processCombo = nullptr;
+	// The process ids we have found.
+	std::vector<DWORD> _pids;
 };
 
 static const clap_plugin_descriptor descriptor = {
