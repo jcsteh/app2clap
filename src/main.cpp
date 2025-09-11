@@ -251,6 +251,7 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool guiCreate(const char *api, bool isFloating) noexcept override {
+		// We create the GUI in guiSetParent below.
 		return true;
 	}
 
@@ -290,7 +291,8 @@ class App2Clap : public BasePlugin {
 			if (LOWORD(wParam) == ID_REFRESH) {
 				plugin->buildProcessList();
 				return TRUE;
-			} else if (LOWORD(wParam) == ID_APPLY) {
+			}
+			if (LOWORD(wParam) == ID_APPLY) {
 				// Restart the plugin. We will set up the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
