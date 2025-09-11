@@ -163,6 +163,10 @@ class App2Clap : public BasePlugin {
 		if (!this->_client) {
 			return;
 		}
+		if (this->_buffer) {
+			this->releaseBuffer();
+			this->_remainingFrames = 0;
+		}
 		this->_client->Stop();
 		this->_capture = nullptr;
 		this->_client = nullptr;
@@ -172,68 +176,34 @@ class App2Clap : public BasePlugin {
 		if (!this->_capture) {
 			return CLAP_PROCESS_SLEEP;
 		}
-		BYTE* data;
 		uint32_t f = 0; // How many frames we've sent to the host.
-		if (!this->_buffer.empty()) {
-			// There's stuff left in the capture buffer from last time. Push that first.
-			data = &this->_buffer[this->_bufferConsumed];
-			while (f < process->frames_count) {
-				memcpy(
-					&process->audio_outputs[0].data32[0][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-				memcpy(
-					&process->audio_outputs[0].data32[1][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-				++f;
-				this->_bufferConsumed += 2 * sizeof(float);
-				if (this->_bufferConsumed >= this->_buffer.size()) {
-					// We've exhausted the buffer. Clear it.
-					this->_buffer.clear();
-					this->_bufferConsumed = 0;
-					break;
-				}
-			}
-			if (f >= process->frames_count) {
-				// The host can't handle any more frames.
-				return CLAP_PROCESS_CONTINUE;
-			}
-		}
-
 		while (f < process->frames_count) {
-			// Capture audio from Windows. We keep doing this until the host can't
-			// handle any more frames.
-			UINT32 numFrames; // The number of captured frames.
-			DWORD flags;
-			HRESULT hr = this->_capture->GetBuffer(&data, &numFrames, &flags, nullptr, nullptr);
-			if (FAILED(hr) || numFrames == 0) {
-				return CLAP_PROCESS_CONTINUE;
+			if (!this->_buffer) {
+				// We exhausted our previous buffer of captured audio (if any). Get another.
+				DWORD flags;
+				HRESULT hr = this->_capture->GetBuffer(
+					&this->_buffer, &this->_framesToRelease, &flags, nullptr, nullptr
+				);
+				if (FAILED(hr) || this->_framesToRelease == 0) {
+					return CLAP_PROCESS_CONTINUE;
+				}
+				this->_remainingFrames = this->_framesToRelease;
 			}
-			uint32_t cf = 0; // How many captured frames we've consumed.
-			for (; f < process->frames_count && cf < numFrames; ++f, ++cf) {
+			for (; f < process->frames_count && this->_remainingFrames > 0; ++f, --this->_remainingFrames) {
 				memcpy(
 					&process->audio_outputs[0].data32[0][f],
-					data, sizeof(float)
+					this->_buffer, sizeof(float)
 				);
-				data += sizeof(float);
+				this->_buffer += sizeof(float);
 				memcpy(
 					&process->audio_outputs[0].data32[1][f],
-					data, sizeof(float)
+					this->_buffer, sizeof(float)
 				);
-				data += sizeof(float);
+				this->_buffer += sizeof(float);
 			}
-			if (cf < numFrames) {
-				// The host can't handle any more frames, but we still have captured frames
-				// we haven't pushed. Store them in our buffer for next time.
-				this->_buffer.insert(
-					this->_buffer.end(),
-					data, data + 2 * sizeof(float) * (numFrames - cf)
-				);
+			if (this->_remainingFrames == 0) {
+				this->releaseBuffer();
 			}
-			this->_capture->ReleaseBuffer(numFrames);
 		}
 		return CLAP_PROCESS_CONTINUE;
 	}
@@ -285,6 +255,12 @@ class App2Clap : public BasePlugin {
 	}
 
 	private:
+	void releaseBuffer() {
+		this->_capture->ReleaseBuffer(this->_framesToRelease);
+		this->_buffer = nullptr;
+		this->_framesToRelease = 0;
+	}
+
 	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		auto* plugin = (App2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
 		if (msg == WM_COMMAND) {
@@ -322,10 +298,12 @@ class App2Clap : public BasePlugin {
 
 	CComPtr<IAudioClient> _client;
 	CComPtr<IAudioCaptureClient> _capture;
-	// A buffer to store audio we've captured but not yet sent to the host.
-	std::vector<BYTE> _buffer;
-	// How many bytes of _buffer we have already consumed.
-	size_t _bufferConsumed = 0;
+	// A buffer of captured audio.
+	BYTE* _buffer = nullptr;
+	// How many frames need to be released.
+	UINT32 _framesToRelease = 0;
+	// How many frames remain in the buffer.
+	UINT32 _remainingFrames = 0;
 	HWND _dialog = nullptr;
 	HWND _processCombo = nullptr;
 	// The process ids we have found.
