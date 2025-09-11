@@ -3,6 +3,7 @@
 .gitmodules text
 *.cpp text
 *.h text
+*.md text
 *.rc text
 sconstruct text
 sconscript text
