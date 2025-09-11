@@ -13,3 +13,4 @@
 #define ID_PROCESS 103
 #define ID_REFRESH 104
 #define ID_APPLY 105
+#define ID_EVERYTHING 106

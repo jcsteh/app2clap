@@ -26,6 +26,9 @@
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 #define HINST_THISDLL ((HINSTANCE)&__ImageBase)
 
+constexpr DWORD IDLE_PID = 0;
+constexpr DWORD SYSTEM_PID = 4;
+
 class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandler {
 	public:
 	ActivateCompletionHandler() {
@@ -91,19 +94,14 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (!this->_processCombo) {
-			// The GUI isn't initialised yet.
-			return false;
-		}
-		const int procChoice = ComboBox_GetCurSel(this->_processCombo);
-		if (procChoice == CB_ERR) {
-			// The user hasn't chosen a process yet.
+		DWORD pid = this->getChosenPid();
+		if (!pid) {
 			return false;
 		}
 		AUDIOCLIENT_ACTIVATION_PARAMS params = {
 			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
 		};
-		params.ProcessLoopbackParams.TargetProcessId = this->_pids[procChoice];
+		params.ProcessLoopbackParams.TargetProcessId = pid;
 		params.ProcessLoopbackParams.ProcessLoopbackMode =
 			IsDlgButtonChecked(this->_dialog, ID_PROCESS_INCLUDE) ?
 			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
@@ -288,11 +286,18 @@ class App2Clap : public BasePlugin {
 	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		auto* plugin = (App2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
 		if (msg == WM_COMMAND) {
-			if (LOWORD(wParam) == ID_REFRESH) {
+			const WORD cid = LOWORD(wParam);
+			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
+				const bool enable = cid != ID_EVERYTHING;
+				EnableWindow(plugin->_processCombo, enable);
+				EnableWindow(GetDlgItem(plugin->_dialog, ID_REFRESH), enable);
+				return TRUE;
+			}
+			if (cid == ID_REFRESH) {
 				plugin->buildProcessList();
 				return TRUE;
 			}
-			if (LOWORD(wParam) == ID_APPLY) {
+			if (cid == ID_APPLY) {
 				// Restart the plugin. We will set up the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
@@ -312,12 +317,31 @@ class App2Clap : public BasePlugin {
 		this->_pids.clear();
 		ComboBox_ResetContent(this->_processCombo);
 		do {
+			if (entry.th32ProcessID == IDLE_PID || entry.th32ProcessID == SYSTEM_PID) {
+				continue;
+			}
 			std::ostringstream s;
 			this->_pids.push_back(entry.th32ProcessID);
 			s << entry.szExeFile << " " << entry.th32ProcessID;
 			ComboBox_AddString(this->_processCombo, s.str().c_str());
 		} while (Process32Next(snapshot, &entry));
 		CloseHandle(snapshot);
+	}
+
+	DWORD getChosenPid() const {
+		if (!this->_processCombo) {
+			// The GUI isn't initialised yet.
+			return 0;
+		}
+		if (IsDlgButtonChecked(this->_dialog, ID_EVERYTHING)) {
+			return SYSTEM_PID;
+		}
+		const int choice = ComboBox_GetCurSel(this->_processCombo);
+		if (choice == CB_ERR) {
+			// The user hasn't chosen a process yet.
+			return 0;
+		}
+		return this->_pids[choice];
 	}
 
 	CComPtr<IAudioClient> _client;

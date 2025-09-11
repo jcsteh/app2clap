@@ -19,7 +19,8 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 
 ## Usage with a DAW
 1. Add the `App2Clap` plug-in to a track in your DAW.
-2. Choose whether you want to capture a specific process only or capture everything except a specific process.
+2. Choose whether you want to capture a specific process only, capture everything except a specific process or capture everything.
+    Note that capturing everything could cause feedback, as it may capture the output of your DAW itself.
 3. Select a process from the list.
 4. Press Apply to start capturing.
 5. If you want to capture a different process, change the settings and press Apply again.
