@@ -297,7 +297,7 @@ class App2Clap : public BasePlugin {
 				plugin->buildProcessList();
 				return TRUE;
 			}
-			if (cid == ID_APPLY) {
+			if (cid == ID_CAPTURE) {
 				// Restart the plugin. We will set up the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
