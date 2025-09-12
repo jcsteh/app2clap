@@ -14,3 +14,4 @@
 #define ID_REFRESH 104
 #define ID_CAPTURE 105
 #define ID_EVERYTHING 106
+#define ID_FILTER 107

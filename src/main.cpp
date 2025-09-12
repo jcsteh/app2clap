@@ -290,10 +290,14 @@ class App2Clap : public BasePlugin {
 			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
 				const bool enable = cid != ID_EVERYTHING;
 				EnableWindow(plugin->_processCombo, enable);
+				EnableWindow(GetDlgItem(plugin->_dialog, ID_FILTER), enable);
 				EnableWindow(GetDlgItem(plugin->_dialog, ID_REFRESH), enable);
 				return TRUE;
 			}
-			if (cid == ID_REFRESH) {
+			if (
+				cid == ID_REFRESH ||
+				(cid == ID_FILTER && HIWORD(wParam) == EN_KILLFOCUS)
+			) {
 				plugin->buildProcessList();
 				return TRUE;
 			}
@@ -307,6 +311,11 @@ class App2Clap : public BasePlugin {
 	}
 
 	void buildProcessList() {
+		char rawFilter[100];
+		GetDlgItemText(this->_dialog, ID_FILTER, rawFilter, sizeof(rawFilter));
+		std::string filter = rawFilter;
+		// We want to match case insensitively, so convert to lower case.
+		std::transform(filter.begin(), filter.end(), filter.begin(), std::tolower);
 		PROCESSENTRY32 entry;
 		entry.dwSize = sizeof(PROCESSENTRY32);
 		HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -314,6 +323,7 @@ class App2Clap : public BasePlugin {
 			CloseHandle(snapshot);
 			return;
 		}
+		DWORD chosenPid = this->getChosenPid();
 		this->_pids.clear();
 		ComboBox_ResetContent(this->_processCombo);
 		do {
@@ -321,9 +331,22 @@ class App2Clap : public BasePlugin {
 				continue;
 			}
 			std::ostringstream s;
-			this->_pids.push_back(entry.th32ProcessID);
 			s << entry.szExeFile << " " << entry.th32ProcessID;
-			ComboBox_AddString(this->_processCombo, s.str().c_str());
+			bool include = filter.empty();
+			if (!include) {
+				// Convert to lower case for match.
+				std::string lower = s.str();
+				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
+				include = lower.find(filter) != std::string::npos;
+			}
+			if (include) {
+				ComboBox_AddString(this->_processCombo, s.str().c_str());
+				if (entry.th32ProcessID == chosenPid) {
+					// Select the previously chosen process.
+					ComboBox_SetCurSel(this->_processCombo, this->_pids.size());
+				}
+				this->_pids.push_back(entry.th32ProcessID);
+			}
 		} while (Process32Next(snapshot, &entry));
 		CloseHandle(snapshot);
 	}
