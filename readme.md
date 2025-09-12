@@ -29,6 +29,9 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
 7. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
 
+## Reporting Issues
+Issues should be reported [on GitHub](https://github.com/jcsteh/app2clap/issues).
+
 ## Building
 This section is for those interested in building App2Clap from source code.
 
