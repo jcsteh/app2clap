@@ -1,6 +1,6 @@
 /*
  * App2Clap
- * Main plug-in code
+ * App2Clap plug-in code
  * Author: James Teh <jamie@jantrid.net>
  * Copyright 2025 James Teh
  * License: GNU General Public License version 2.0
@@ -271,7 +271,7 @@ class App2Clap : public BasePlugin {
 		// We create the dialog here instead of guiCreate because CreateDialog needs
 		// the parent HWND in order to make a DS_CHILD dialog.
 		this->_dialog = CreateDialog(
-			HINST_THISDLL, MAKEINTRESOURCE(ID_MAIN_DLG),
+			HINST_THISDLL, MAKEINTRESOURCE(ID_APP2CLAP_DLG),
 			// hack: Use the grandparent so tabbing works in REAPER.
 			GetParent((HWND)window->win32), App2Clap::dialogProc
 		);
@@ -379,7 +379,7 @@ class App2Clap : public BasePlugin {
 	std::vector<DWORD> _pids;
 };
 
-static const clap_plugin_descriptor descriptor = {
+extern const clap_plugin_descriptor app2ClapDescriptor = {
 	.clap_version = CLAP_VERSION_INIT,
 	.id = "jantrid.app2clap",
 	.name = "App2Clap",
@@ -395,27 +395,7 @@ static const clap_plugin_descriptor descriptor = {
 	}
 };
 
-static const clap_plugin_factory factory = {
-	.get_plugin_count = [] (const clap_plugin_factory* factory) -> uint32_t {
-		return 1;
-	},
-	.get_plugin_descriptor = [] (const clap_plugin_factory* factory, uint32_t index) -> const clap_plugin_descriptor* {
-		return index == 0 ? &descriptor : nullptr;
-	},
-	.create_plugin = [] (const clap_plugin_factory* factory, const clap_host* host, const char *pluginID) -> const clap_plugin* {
-		if (strcmp(pluginID, descriptor.id) == 0) {
-			auto plugin = new App2Clap(&descriptor, host);
-			return plugin->clapPlugin();
-		}
-		return nullptr;
-	},
-};
-
-CLAP_EXPORT const clap_plugin_entry clap_entry = {
-	.clap_version = CLAP_VERSION,
-	.init = [] (const char *path) -> bool { return true; },
-	.deinit = [] () {},
-	.get_factory = [] (const char *factoryID) -> const void * {
-		return strcmp(factoryID, CLAP_PLUGIN_FACTORY_ID) == 0 ? &factory : nullptr;
-	},
-};
+const clap_plugin* createApp2Clap(const clap_host* host) {
+	auto plugin = new App2Clap(&app2ClapDescriptor, host);
+	return plugin->clapPlugin();
+}
