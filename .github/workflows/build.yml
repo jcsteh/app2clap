@@ -1,0 +1,95 @@
+# Build and upload App2Clap for pushes or pull requests.
+name: build
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize]
+defaults:
+  run:
+    shell: bash
+env:
+  VSCMD_SKIP_SENDTELEMETRY: 1
+  SCONS_CACHE_MSVC_CONFIG: 1
+concurrency:
+  # There's no point continuing to run a build if it's already outdated by
+  # another commit.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: set env
+        run: |
+          echo "CACHE_KEY=${RUNNER_OS}-${ImageVersion}" >> $GITHUB_ENV
+          if [ $GITHUB_EVENT_NAME == push ]; then
+            # For example: 2025.6.5.11,7041fcb6
+            echo version=`date +%Y.%-m.%-d`.$GITHUB_RUN_NUMBER,${GITHUB_SHA:0:8} >> "$GITHUB_ENV"
+          else
+            # For example: pr1234-101,7041fcb6
+            echo version=pr${{ github.event.number }}-$GITHUB_RUN_NUMBER,${GITHUB_SHA:0:8} >> "$GITHUB_ENV"
+          fi
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: setup
+        run: pip install scons
+      - name: SCons MSVC Cache
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: actions/cache@v4
+        with:
+          path: ~\scons_msvc_cache.json
+          key: ${{ env.CACHE_KEY }}
+      - name: build
+        run: scons
+      # Normal artifacts are always zipped. We upload snapshot builds to GitHub
+      # Releases so they can be downloaded directly.
+      - name: zip
+        if: ${{ github.event_name == 'push' }}
+        run: cd build; 7z a -tzip -mx=9 app2clap_$version.zip app2clap.clap
+      - id: uploadBuild
+        name: upload build
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.zip
+          # We have a hacky release we reuse for snapshots, rather than
+          # creating a tag and a release for every snapshot.
+          tag_name: snapshots
+      # We upload pull request builds as normal artifacts.
+      - name: upload PR build
+        uses: actions/upload-artifact@v4
+        with:
+          name: app2clap_${{ env.version }}
+          path: build/app2clap.clap
+    outputs:
+      version: ${{ env.version }}
+      # These will only be set for snapshot builds. This is possible because
+      # outputs won't be set if the value is empty.
+      downloadUrl: ${{ fromJSON(steps.uploadBuild.outputs.assets)[0].browser_download_url }}
+  publish:
+    # This job updates the website with the new readme and snapshots.
+    if: ${{ github.event_name == 'push' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: setup
+        run: pip install markdown
+      - uses: actions/checkout@v4
+      - name: build
+        env:
+          version: ${{ needs.build.outputs.version }}
+          downloadUrl: ${{ needs.build.outputs.downloadUrl }}
+        run: python ci/buildSite
+      - name: upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # ci/buildSite built the site in _site/.
+          path: _site/
+      - name: deploy
+        uses: actions/deploy-pages@v4

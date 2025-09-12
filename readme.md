@@ -1,8 +1,10 @@
 # App2Clap
 
-[Download](https://files.jantrid.net/app2clap.clap)
+<!--beginDownload-->
+[Downloads available on the App2Clap website](https://app2clap.jantrid.net/)
+<!--endDownload-->
 
-- Author: James Teh &lt;jamie@jantrid.net&gt; & other contributors
+- Author: James Teh &lt;jamie@jantrid.net&gt;
 - Copyright: 2025 James Teh
 - License: GNU General Public License version 2.0
 
@@ -14,7 +16,7 @@ Windows 11 is required.
 ## Download and Installation
 For now, there is no installer.
 You can download the latest build using the link at the top of this page.
-Once downloaded, simply copy the `app2clap.clap` file you downloaded to the `%localappdata%\Programs\Common\CLAP` folder using Windows File Explorer.
+Once downloaded, simply copy the `app2clap.clap` file out of the zip file you downloaded to the `%localappdata%\Programs\Common\CLAP` folder using Windows File Explorer.
 The `CLAP` directory might not exist there yet, in which case you will need to create it under `%localappdata%\Programs\Common`.
 
 ## Usage with a DAW
