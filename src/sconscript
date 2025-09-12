@@ -19,6 +19,6 @@ env.Append(LINKFLAGS='/OPT:REF')
 env.SharedLibrary(
 	target="app2clap",
 	SHLIBSUFFIX=".clap",
-	source=["app2clap.cpp", "entry.cpp", env.RES("resource.rc")],
-	LIBS=["mmdevapi.lib", "user32.lib"],
+	source=["app2clap.cpp", "clap2app.cpp", "entry.cpp", env.RES("resource.rc")],
+	LIBS=["mmdevapi.lib", "ole32.lib", "user32.lib"],
 )

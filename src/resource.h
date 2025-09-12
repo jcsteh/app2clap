@@ -15,3 +15,7 @@
 #define ID_CAPTURE 105
 #define ID_EVERYTHING 106
 #define ID_FILTER 107
+
+#define ID_CLAP2APP_DLG 200
+#define ID_DEVICE 201
+#define ID_SEND 202

@@ -8,10 +8,15 @@
 - Copyright: 2025 James Teh
 - License: GNU General Public License version 2.0
 
-App2Clap is a CLAP plug-in that captures audio from a specific Windows application.
-It can be used, for example, to record audio from another application into a DAW.
-Windows 11 is required.
+App2Clap provides two CLAP plug-ins:
 
+1. App2Clap, which captures audio from a specific Windows application.
+    It can be used, for example, to record audio from another application into a DAW.
+2. Clap2App, which sends audio to a specific Windows audio device.
+    It's not possible to send audio directly into another Windows application.
+    However, if you combine this with a virtual audio cable driver, you can use Clap2App to send audio to the virtual output device and set an application to record from the corresponding virtual input device.
+
+This requires Windows 11, or Windows 10 22H2 or later.
 
 ## Download and Installation
 For now, there is no installer.
@@ -20,6 +25,8 @@ Once downloaded, simply copy the `app2clap.clap` file out of the zip file you do
 The `CLAP` directory might not exist there yet, in which case you will need to create it under `%localappdata%\Programs\Common`.
 
 ## Usage with a DAW
+
+### Capturing Audio
 1. Add the `App2Clap` plug-in to a track in your DAW.
 2. Choose whether you want to capture a specific process only, capture everything except a specific process or capture everything.
     Note that capturing everything could cause feedback, as it may capture the output of your DAW itself.
@@ -29,6 +36,13 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 5. If you want to capture a different process, change the settings and press Capture again.
 6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
 7. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
+
+### Sending Audio to a Windows Audio Device
+1. Add the `Clap2App` plug-in to a track in your DAW.
+2. Select an output device from the list.
+3. Press Send to start sending audio from the DAW track to the output device.
+4. If you want to change the output device, change the settings and press Send again.
+5. To output to multiple devices, use separate instances of the plug-in.
 
 ## Reporting Issues
 Issues should be reported [on GitHub](https://github.com/jcsteh/app2clap/issues).
