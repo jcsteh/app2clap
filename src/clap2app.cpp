@@ -89,7 +89,8 @@ class Clap2App : public BasePlugin {
 			return false;
 		}
 		// There are 10000000 REFERENCE_TIME per second.
-		const REFERENCE_TIME bufferDuration = maxFrameCount * 10000000 / sampleRate;
+		REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
+			10000000 / sampleRate;
 		hr = this->_client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
 			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
@@ -98,15 +99,39 @@ class Clap2App : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
+		hr = this->_client->GetBufferSize(&this->_renderMinFrames);
 		if (FAILED(hr)) {
 			return false;
+		}
+		if (this->_renderMinFrames > maxFrameCount) {
+			// The device's minimum buffer size is larger than the host's max frame
+			// count. This means we need to buffer across host chunks, so we need to
+			// ensure the buffer has enough space to contain an additional host chunk,
+			// since the device's minimum buffer size might not be a multiple of a host
+			// chunk.
+			hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+			if (FAILED(hr)) {
+				return false;
+			}
+			REFERENCE_TIME bufferDuration =
+				(REFERENCE_TIME)(this->_renderMinFrames + maxFrameCount) *
+				10000000 / sampleRate;
+			hr = this->_client->Initialize(
+				AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+				bufferDuration, 0, &format, nullptr
+			);
+			if (FAILED(hr)) {
+				return false;
+			}
+			hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
+			if (FAILED(hr)) {
+				return false;
+			}
+		} else {
+			this->_renderBufferFrames = this->_renderMinFrames;
 		}
 		hr = this->_client->GetService(__uuidof(IAudioRenderClient), (void**)&this->_render);
-		if (FAILED(hr)) {
-			return false;
-		}
-		hr = this->_client->Start();
 		if (FAILED(hr)) {
 			return false;
 		}
@@ -117,7 +142,7 @@ class Clap2App : public BasePlugin {
 		if (!this->_client) {
 			return;
 		}
-		this->_client->Stop();
+		this->reset();
 		this->_render = nullptr;
 		this->_client = nullptr;
 	}
@@ -155,7 +180,16 @@ class Clap2App : public BasePlugin {
 			data += sizeof(float);
 		}
 		this->_render->ReleaseBuffer(sendFrames, 0);
+		if (paddingFrames + sendFrames >= this->_renderMinFrames) {
+			// There's enough in the render buffer to begin playback.
+			this->_client->Start();
+		}
 		return CLAP_PROCESS_CONTINUE;
+	}
+
+	void reset() noexcept override {
+		this->_client->Stop();
+		this->_client->Reset();
 	}
 
 	bool implementsGui() const noexcept override { return true; }
@@ -266,6 +300,8 @@ class Clap2App : public BasePlugin {
 	std::vector<std::wstring> _devices;
 	// The maximum number of frames that can fit in the render buffer.
 	UINT32 _renderBufferFrames;
+	// The minimum number of frames required to prevent rendering glitches.
+	UINT32 _renderMinFrames = 0;
 };
 
 extern const clap_plugin_descriptor clap2AppDescriptor = {
