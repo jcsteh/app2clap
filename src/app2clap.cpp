@@ -130,16 +130,15 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		DWORD pid = this->getChosenPid();
-		if (!pid) {
+		if (!this->_pid) {
 			return false;
 		}
 		AUDIOCLIENT_ACTIVATION_PARAMS params = {
 			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
 		};
-		params.ProcessLoopbackParams.TargetProcessId = pid;
+		params.ProcessLoopbackParams.TargetProcessId = this->_pid;
 		params.ProcessLoopbackParams.ProcessLoopbackMode =
-			IsDlgButtonChecked(this->_dialog, ID_PROCESS_INCLUDE) ?
+			this->_include ?
 			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
 			PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
 		PROPVARIANT propvar = { .vt = VT_BLOB };
@@ -317,7 +316,17 @@ class App2Clap : public BasePlugin {
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
 		this->_processCombo = GetDlgItem(this->_dialog, ID_PROCESS);
 		this->buildProcessList();
-		CheckDlgButton(this->_dialog, ID_PROCESS_INCLUDE, BST_CHECKED);
+		if (this->_pid == SYSTEM_PID) {
+			CheckDlgButton(this->_dialog, ID_EVERYTHING, BST_CHECKED);
+			this->enableProcessChoice(false);
+		} else {
+			CheckDlgButton(
+				this->_dialog,
+				this->_include ? ID_PROCESS_INCLUDE : ID_PROCESS_EXCLUDE,
+				BST_CHECKED
+			);
+			this->enableProcessChoice(true);
+		}
 		return true;
 	}
 
@@ -327,10 +336,7 @@ class App2Clap : public BasePlugin {
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
-				const bool enable = cid != ID_EVERYTHING;
-				EnableWindow(plugin->_processCombo, enable);
-				EnableWindow(GetDlgItem(plugin->_dialog, ID_FILTER), enable);
-				EnableWindow(GetDlgItem(plugin->_dialog, ID_REFRESH), enable);
+				plugin->enableProcessChoice(!IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING));
 				return TRUE;
 			}
 			if (
@@ -341,6 +347,18 @@ class App2Clap : public BasePlugin {
 				return TRUE;
 			}
 			if (cid == ID_CAPTURE) {
+				if (IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING)) {
+					plugin->_pid = SYSTEM_PID;
+					plugin->_include = false;
+				} else {
+					const int choice = ComboBox_GetCurSel(plugin->_processCombo);
+					if (choice == CB_ERR) {
+						plugin->_pid = 0;
+					} else {
+						plugin->_pid = plugin->_pids[choice];
+					}
+					plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
+				}
 				// Restart the plugin. We will set up the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
@@ -362,7 +380,8 @@ class App2Clap : public BasePlugin {
 			CloseHandle(snapshot);
 			return;
 		}
-		DWORD chosenPid = this->getChosenPid();
+		const int choice = ComboBox_GetCurSel(this->_processCombo);
+		DWORD chosenPid = choice == CB_ERR ? this->_pid : this->_pids[choice];
 		this->_pids.clear();
 		ComboBox_ResetContent(this->_processCombo);
 		do {
@@ -388,22 +407,6 @@ class App2Clap : public BasePlugin {
 			}
 		} while (Process32Next(snapshot, &entry));
 		CloseHandle(snapshot);
-	}
-
-	DWORD getChosenPid() const {
-		if (!this->_processCombo) {
-			// The GUI isn't initialised yet.
-			return 0;
-		}
-		if (IsDlgButtonChecked(this->_dialog, ID_EVERYTHING)) {
-			return SYSTEM_PID;
-		}
-		const int choice = ComboBox_GetCurSel(this->_processCombo);
-		if (choice == CB_ERR) {
-			// The user hasn't chosen a process yet.
-			return 0;
-		}
-		return this->_pids[choice];
 	}
 
 	bool _doCapture() {
@@ -445,6 +448,12 @@ class App2Clap : public BasePlugin {
 		}
 	}
 
+	void enableProcessChoice(bool enable) {
+		EnableWindow(this->_processCombo, enable);
+		EnableWindow(GetDlgItem(this->_dialog, ID_FILTER), enable);
+		EnableWindow(GetDlgItem(this->_dialog, ID_REFRESH), enable);
+	}
+
 	CComPtr<IAudioClient> _client;
 	CComPtr<IAudioCaptureClient> _capture;
 	// A buffer to store audio we've captured but not yet sent to the host.
@@ -454,6 +463,10 @@ class App2Clap : public BasePlugin {
 	HWND _processCombo = nullptr;
 	// The process ids we have found.
 	std::vector<DWORD> _pids;
+	// The chosen pid.
+	DWORD _pid = 0;
+	// Whether to include audio from this pid or exclude audio from this pid.
+	bool _include = true;
 	std::thread _captureThread;
 	AutoHandle _captureEvent;
 };
