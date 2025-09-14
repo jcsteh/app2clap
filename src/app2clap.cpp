@@ -21,6 +21,7 @@
 
 #include "clap/helpers/plugin.hxx"
 
+#include "common.h"
 #include "resource.h"
 
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
@@ -85,7 +86,7 @@ class App2Clap : public BasePlugin {
 			return false;
 		}
 		info->id = 0;
-		info->channel_count = 2;
+		info->channel_count = NUM_CHANNELS;
 		info->flags = CLAP_AUDIO_PORT_IS_MAIN;
 		info->port_type = CLAP_PORT_STEREO;
 		info->in_place_pair = CLAP_INVALID_ID;
@@ -135,11 +136,11 @@ class App2Clap : public BasePlugin {
 		this->_client = client;
 		WAVEFORMATEX format = {
 			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-			.nChannels = 2,
+			.nChannels = NUM_CHANNELS,
 			.nSamplesPerSec = (DWORD)sampleRate,
-			.nAvgBytesPerSec = (DWORD)sampleRate * 8,
-			.nBlockAlign = 8,
-			.wBitsPerSample = 32,
+			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
+			.nBlockAlign = BYTES_PER_FRAME,
+			.wBitsPerSample = BITS_PER_SAMPLE,
 		};
 		hr = client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
@@ -187,7 +188,7 @@ class App2Clap : public BasePlugin {
 				);
 				data += sizeof(float);
 				++f;
-				this->_bufferConsumed += 2 * sizeof(float);
+				this->_bufferConsumed += BYTES_PER_FRAME;
 				if (this->_bufferConsumed >= this->_buffer.size()) {
 					// We've exhausted the buffer. Clear it.
 					this->_buffer.clear();
@@ -228,7 +229,7 @@ class App2Clap : public BasePlugin {
 				// we haven't pushed. Store them in our buffer for next time.
 				this->_buffer.insert(
 					this->_buffer.end(),
-					data, data + 2 * sizeof(float) * (numFrames - cf)
+					data, data + BYTES_PER_FRAME * (numFrames - cf)
 				);
 			}
 			this->_capture->ReleaseBuffer(numFrames);

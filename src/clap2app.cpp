@@ -22,6 +22,7 @@
 
 #include "clap/helpers/plugin.hxx"
 
+#include "common.h"
 #include "resource.h"
 
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
@@ -64,11 +65,11 @@ class Clap2App : public BasePlugin {
 		}
 		WAVEFORMATEX format = {
 			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-			.nChannels = 2,
+			.nChannels = NUM_CHANNELS,
 			.nSamplesPerSec = (DWORD)sampleRate,
-			.nAvgBytesPerSec = (DWORD)sampleRate * 8,
-			.nBlockAlign = 8,
-			.wBitsPerSample = 32,
+			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
+			.nBlockAlign = BYTES_PER_FRAME,
+			.wBitsPerSample = BITS_PER_SAMPLE,
 		};
 		CComPtr<IMMDeviceEnumerator> enumerator;
 		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
@@ -84,9 +85,8 @@ class Clap2App : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		// There are 10000000 REFERENCE_TIME per second.
 		REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
-			10000000 / sampleRate;
+			REFTIMES_PER_SEC / sampleRate;
 		hr = this->_client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
 			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
@@ -111,7 +111,7 @@ class Clap2App : public BasePlugin {
 			}
 			REFERENCE_TIME bufferDuration =
 				(REFERENCE_TIME)(this->_renderMinFrames + maxFrameCount) *
-				10000000 / sampleRate;
+				REFTIMES_PER_SEC / sampleRate;
 			hr = this->_client->Initialize(
 				AUDCLNT_SHAREMODE_SHARED,
 				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
