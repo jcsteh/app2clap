@@ -57,13 +57,7 @@ class Clap2App : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (!this->_deviceCombo) {
-			// The GUI isn't initialised yet.
-			return false;
-		}
-		const int choice = ComboBox_GetCurSel(this->_deviceCombo);
-		if (choice == CB_ERR) {
-			// The user hasn't chosen a device yet.
+		if (this->_device.empty()) {
 			return false;
 		}
 		WAVEFORMATEX format = {
@@ -80,7 +74,7 @@ class Clap2App : public BasePlugin {
 			return false;
 		}
 		CComPtr<IMMDevice> device;
-		hr = enumerator->GetDevice(this->_devices[choice].c_str(), &device);
+		hr = enumerator->GetDevice(this->_device.c_str(), &device);
 		if (FAILED(hr)) {
 			return false;
 		}
@@ -243,6 +237,12 @@ class Clap2App : public BasePlugin {
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_SEND) {
+				const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
+				if (choice == CB_ERR) {
+					// The user hasn't chosen a device yet.
+					return TRUE;
+				}
+				plugin->_device = plugin->_devices[choice];
 				// Restart the plugin. We will set up the send in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
@@ -252,6 +252,7 @@ class Clap2App : public BasePlugin {
 	}
 
 	void buildDeviceList() {
+		this->_devices.clear();
 		ComboBox_ResetContent(this->_deviceCombo);
 		CComPtr<IMMDeviceEnumerator> enumerator;
 		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
@@ -277,6 +278,7 @@ class Clap2App : public BasePlugin {
 				continue;
 			}
 			this->_devices.push_back(id);
+			const bool selected = this->_device == id;
 			CoTaskMemFree(id);
 			CComPtr<IPropertyStore> props;
 			hr = device->OpenPropertyStore(STGM_READ, &props);
@@ -289,6 +291,10 @@ class Clap2App : public BasePlugin {
 				return;
 			}
 			ComboBox_AddString(this->_deviceCombo, val.pwszVal);
+			if (selected) {
+				// Select the previously chosen device.
+				ComboBox_SetCurSel(this->_deviceCombo, this->_devices.size() - 1);
+			}
 		}
 	}
 
@@ -298,6 +304,8 @@ class Clap2App : public BasePlugin {
 	HWND _deviceCombo = nullptr;
 	// The devices we have found.
 	std::vector<std::wstring> _devices;
+	// The chosen device.
+	std::wstring _device;
 	// The maximum number of frames that can fit in the render buffer.
 	UINT32 _renderBufferFrames;
 	// The minimum number of frames required to prevent rendering glitches.
