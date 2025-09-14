@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "circular_buffer.h"
 #include "clap/helpers/plugin.hxx"
 
 #include "common.h"
@@ -30,14 +31,48 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 constexpr DWORD IDLE_PID = 0;
 constexpr DWORD SYSTEM_PID = 4;
 
+class AutoHandle {
+	public:
+	AutoHandle(): _handle(nullptr) {}
+	AutoHandle(HANDLE handle): _handle(handle) {}
+	AutoHandle(AutoHandle& handle) = delete;
+
+	~AutoHandle() {
+		if (this->_handle) {
+			CloseHandle(this->_handle);
+		}
+	}
+
+	AutoHandle& operator=(HANDLE newHandle) {
+		if (this->_handle) {
+			CloseHandle(this->_handle);
+		}
+		this->_handle = newHandle;
+		return *this;
+	}
+
+	// Don't allow copy assignment, since the other AutoHandle will close the
+	// handle when it is destroyed.
+	AutoHandle& operator=(const AutoHandle& newHandle) = delete;
+
+	AutoHandle& operator=(AutoHandle&& newHandle) {
+		this->_handle = newHandle._handle;
+		newHandle._handle = nullptr;
+		return *this;
+	}
+
+	operator HANDLE() {
+		return this->_handle;
+	}
+
+	private:
+	HANDLE _handle;
+};
+
 class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandler {
 	public:
 	ActivateCompletionHandler() {
 		this->_event = CreateEvent(nullptr, true, false, nullptr);
-	}
-
-	~ActivateCompletionHandler() {
-		CloseHandle(this->_event);
 	}
 
 	void wait() {
@@ -62,7 +97,7 @@ class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandle
 	}
 
 	private:
-	HANDLE _event;
+	AutoHandle _event;
 };
 
 using BasePlugin = clap::helpers::Plugin<
@@ -110,30 +145,32 @@ class App2Clap : public BasePlugin {
 		PROPVARIANT propvar = { .vt = VT_BLOB };
 		propvar.blob.cbSize = sizeof(params);
 		propvar.blob.pBlobData = (BYTE*)&params;
-		auto completion = std::make_unique<ActivateCompletionHandler>();
-		CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
-		HRESULT hr = ActivateAudioInterfaceAsync(
-			VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-			__uuidof(IAudioClient),
-			&propvar,
-			completion.get(),
-			&asyncOp
-		);
-		if (FAILED(hr)) {
+		auto getClient = [&propvar] () -> CComPtr<IAudioClient> {
+			auto completion = std::make_unique<ActivateCompletionHandler>();
+			CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
+			HRESULT hr = ActivateAudioInterfaceAsync(
+				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+				__uuidof(IAudioClient),
+				&propvar,
+				completion.get(),
+				&asyncOp
+			);
+			if (FAILED(hr)) {
+				return nullptr;
+			}
+			completion->wait();
+			HRESULT asyncHr;
+			CComPtr<IUnknown> activated;
+			hr = asyncOp->GetActivateResult(&asyncHr, &activated);
+			if (FAILED(hr) || FAILED(asyncHr)) {
+				return nullptr;
+			}
+			return CComQIPtr<IAudioClient>(activated);
+		};
+		this->_client = getClient();
+		if (!this->_client) {
 			return false;
 		}
-		completion->wait();
-		HRESULT asyncHr;
-		CComPtr<IUnknown> activated;
-		hr = asyncOp->GetActivateResult(&asyncHr, &activated);
-		if (FAILED(hr) || FAILED(asyncHr)) {
-			return false;
-		}
-		CComQIPtr<IAudioClient> client(activated);
-		if (!client) {
-			return false;
-		}
-		this->_client = client;
 		WAVEFORMATEX format = {
 			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
 			.nChannels = NUM_CHANNELS,
@@ -142,19 +179,62 @@ class App2Clap : public BasePlugin {
 			.nBlockAlign = BYTES_PER_FRAME,
 			.wBitsPerSample = BITS_PER_SAMPLE,
 		};
-		hr = client->Initialize(
+		// Contrary to the documentation, IAudioClient::Initialize ignores the buffer
+		// duration here and can return a smaller buffer. We provide it anyway, but
+		// it can't be relied upon.
+		const REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
+			REFTIMES_PER_SEC / sampleRate;
+		HRESULT hr = this->_client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			0, 0, &format, nullptr
+			AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+			AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			bufferDuration, 0, &format, nullptr
 		);
 		if (FAILED(hr)) {
 			return false;
 		}
-		hr = client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
+		UINT32 bufferSize;
+		this->_client->GetBufferSize(&bufferSize);
 		if (FAILED(hr)) {
 			return false;
 		}
-		client->Start();
+		AutoHandle event;
+		if (bufferSize * 3 < maxFrameCount) {
+			// Windows will only buffer 3 packets at a time. If the host max frame
+			// count is larger than that, capture audio in a background thread to
+			// avoid continual buffer underruns. Note that the thread is less optimal
+			// (and results in glitches) when the host max frame count is lower.
+			this->_client = getClient();
+			if (!this->_client) {
+				return false;
+			}
+			hr = this->_client->Initialize(
+				AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+				bufferDuration, 0, &format, nullptr
+			);
+			if (FAILED(hr)) {
+				return false;
+			}
+			event = CreateEvent(nullptr, false, false, nullptr);
+			hr = this->_client->SetEventHandle(event);
+			if (FAILED(hr)) {
+				return false;
+			}
+		}
+		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
+		if (FAILED(hr)) {
+			return false;
+		}
+		this->_buffer = Buffer(std::max(bufferSize, maxFrameCount) * 2);
+		if (event) {
+			this->_captureEvent =std::move(event);
+			this->_captureThread = std::thread([this] {
+				this->_captureThreadFunc();
+			});
+		}
+		this->_client->Start();
 		return true;
 	}
 
@@ -163,76 +243,34 @@ class App2Clap : public BasePlugin {
 			return;
 		}
 		this->_client->Stop();
-		this->_capture = nullptr;
 		this->_client = nullptr;
+		if (this->_captureEvent) {
+			// Signal the capture thread to exit.
+			SetEvent(this->_captureEvent);
+			this->_captureThread.join();
+			this->_captureEvent = nullptr;
+		}
+		this->_capture = nullptr;
 	}
 
 	clap_process_status process(const clap_process *process) noexcept override {
 		if (!this->_capture) {
 			return CLAP_PROCESS_SLEEP;
 		}
-		BYTE* data;
-		uint32_t f = 0; // How many frames we've sent to the host.
-		if (!this->_buffer.empty()) {
-			// There's stuff left in the capture buffer from last time. Push that first.
-			data = &this->_buffer[this->_bufferConsumed];
-			while (f < process->frames_count) {
-				memcpy(
-					&process->audio_outputs[0].data32[0][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-				memcpy(
-					&process->audio_outputs[0].data32[1][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-				++f;
-				this->_bufferConsumed += BYTES_PER_FRAME;
-				if (this->_bufferConsumed >= this->_buffer.size()) {
-					// We've exhausted the buffer. Clear it.
-					this->_buffer.clear();
-					this->_bufferConsumed = 0;
-					break;
-				}
-			}
-			if (f >= process->frames_count) {
-				// The host can't handle any more frames.
-				return CLAP_PROCESS_CONTINUE;
-			}
+		if (!this->_captureEvent) {
+			// We aren't using a background thread to capture audio, so capture here.
+			// There might be multiple packets ready to capture.
+			while (this->_buffer.size() < process->frames_count && this->_doCapture()) {}
 		}
-
-		while (f < process->frames_count) {
-			// Capture audio from Windows. We keep doing this until the host can't
-			// handle any more frames.
-			UINT32 numFrames; // The number of captured frames.
-			DWORD flags;
-			HRESULT hr = this->_capture->GetBuffer(&data, &numFrames, &flags, nullptr, nullptr);
-			if (FAILED(hr) || numFrames == 0) {
-				return CLAP_PROCESS_CONTINUE;
-			}
-			uint32_t cf = 0; // How many captured frames we've consumed.
-			for (; f < process->frames_count && cf < numFrames; ++f, ++cf) {
-				memcpy(
-					&process->audio_outputs[0].data32[0][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-				memcpy(
-					&process->audio_outputs[0].data32[1][f],
-					data, sizeof(float)
-				);
-				data += sizeof(float);
-			}
-			if (cf < numFrames) {
-				// The host can't handle any more frames, but we still have captured frames
-				// we haven't pushed. Store them in our buffer for next time.
-				this->_buffer.insert(
-					this->_buffer.end(),
-					data, data + BYTES_PER_FRAME * (numFrames - cf)
-				);
-			}
-			this->_capture->ReleaseBuffer(numFrames);
+		if (this->_buffer.size() < process->frames_count) {
+			return CLAP_PROCESS_CONTINUE;
+		}
+		for (uint32_t f = 0; f < process->frames_count; ++f) {
+			std::tie(
+				process->audio_outputs[0].data32[0][f],
+				process->audio_outputs[0].data32[1][f]
+			) = this->_buffer.front();
+			this->_buffer.pop_front();
 		}
 		return CLAP_PROCESS_CONTINUE;
 	}
@@ -368,16 +406,56 @@ class App2Clap : public BasePlugin {
 		return this->_pids[choice];
 	}
 
+	bool _doCapture() {
+		UINT32 numFrames; // The number of captured frames.
+		// GetNextPacketSize and GetBuffer should return the same number of frames.
+		// The documentation doesn't say that GetNextPacketSize is required.
+		// However, if you don't call it first and there is no packet to retrieve,
+		// GetBuffer succeeds even though it returns a packet with bogus data.
+		HRESULT hr = this->_capture->GetNextPacketSize(&numFrames);
+		if (FAILED(hr)) {
+			return false;
+		}
+		if (numFrames == 0) {
+			return false;
+		}
+		DWORD flags;
+		BYTE* data;
+		hr = this->_capture->GetBuffer(&data, &numFrames, &flags, nullptr, nullptr);
+		if (FAILED(hr) || numFrames == 0) {
+			return false;
+		}
+		for (UINT32 f = 0; f < numFrames; ++f) {
+			std::pair<float, float> frame;
+			memcpy(&frame, data, BYTES_PER_FRAME);
+			this->_buffer.push_back(frame);
+			data += BYTES_PER_FRAME;
+		}
+		this->_capture->ReleaseBuffer(numFrames);
+		return true;
+	}
+
+	void _captureThreadFunc() {
+		for (; ;) {
+			WaitForSingleObject(this->_captureEvent, INFINITE);
+			if (!this->_client) {
+				return;
+			}
+			this->_doCapture();
+		}
+	}
+
 	CComPtr<IAudioClient> _client;
 	CComPtr<IAudioCaptureClient> _capture;
 	// A buffer to store audio we've captured but not yet sent to the host.
-	std::vector<BYTE> _buffer;
-	// How many bytes of _buffer we have already consumed.
-	size_t _bufferConsumed = 0;
+	using Buffer = CircularBuffer<std::pair<float, float>>;
+	Buffer _buffer{0};
 	HWND _dialog = nullptr;
 	HWND _processCombo = nullptr;
 	// The process ids we have found.
 	std::vector<DWORD> _pids;
+	std::thread _captureThread;
+	AutoHandle _captureEvent;
 };
 
 extern const clap_plugin_descriptor app2ClapDescriptor = {

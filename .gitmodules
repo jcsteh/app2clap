@@ -4,3 +4,6 @@
 [submodule "deps/clap-helpers"]
 	path = deps/clap-helpers
 	url = https://github.com/free-audio/clap-helpers.git
+[submodule "deps/circularbuffer"]
+	path = deps/circularbuffer
+	url = https://github.com/vinitjames/circularbuffer.git

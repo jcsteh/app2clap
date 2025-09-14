@@ -5,7 +5,11 @@
 # License: GNU General Public License version 2.0
 
 Import("env")
-env.Append(CPPPATH=("#deps/clap/include", "#deps/clap-helpers/include"))
+env.Append(CPPPATH=(
+	"#deps/circularbuffer",
+	"#deps/clap/include",
+	"#deps/clap-helpers/include",
+))
 env["CC"] = "clang-cl"
 env["LINK"] = "lld-link"
 env.Append(CXXFLAGS=[
