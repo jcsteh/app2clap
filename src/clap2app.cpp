@@ -182,6 +182,9 @@ class Clap2App : public BasePlugin {
 	}
 
 	void reset() noexcept override {
+		if (!this->_client) {
+			return;
+		}
 		this->_client->Stop();
 		this->_client->Reset();
 	}
