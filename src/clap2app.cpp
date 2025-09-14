@@ -27,6 +27,8 @@
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 #define HINST_THISDLL ((HINSTANCE)&__ImageBase)
 
+const uint32_t STATE_VERSION = 1;
+
 using BasePlugin = clap::helpers::Plugin<
 	clap::helpers::MisbehaviourHandler::Ignore,
 	clap::helpers::CheckingLevel::None
@@ -231,6 +233,37 @@ class Clap2App : public BasePlugin {
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
 		this->_deviceCombo = GetDlgItem(this->_dialog, ID_DEVICE);
 		this->buildDeviceList();
+		return true;
+	}
+
+	bool implementsState() const noexcept override { return true; }
+
+	bool stateSave(const clap_ostream* stream) noexcept override {
+		stream->write(stream, &STATE_VERSION, sizeof(uint32_t));
+		const size_t nBytes = this->_device.size() * sizeof(wchar_t);
+		stream->write(stream, &nBytes, sizeof(size_t));
+		const wchar_t* device = this->_device.c_str();
+		stream->write(stream, device, nBytes);
+		return true;
+	}
+
+	bool stateLoad(const clap_istream* stream) noexcept override {
+		uint32_t version = 0;
+		stream->read(stream, &version, sizeof(uint32_t));
+		if (version != STATE_VERSION) {
+			return false;
+		}
+		size_t nBytes = 0;
+		stream->read(stream, &nBytes, sizeof(size_t));
+		if (nBytes == 0) {
+			return true;
+		}
+		const size_t nChars = nBytes / sizeof(wchar_t);
+		auto device = std::make_unique<wchar_t[]>(nChars);
+		stream->read(stream, device.get(), nBytes);
+		this->_device = std::wstring(device.get(), nChars);
+		// Restart the plugin. We will set up the send in activate().
+		this->_host.host()->request_restart(this->_host.host());
 		return true;
 	}
 
