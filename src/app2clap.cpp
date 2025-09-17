@@ -311,6 +311,10 @@ class App2Clap : public BasePlugin {
 
 	bool guiShow() noexcept override {
 		ShowWindow(this->_dialog, SW_SHOW);
+		// We need to hide the parent we were supposed to use so hit testing works.
+		// However, REAPER calls ShowWindow after this, so we can't do it here.
+		// Instead, we handle this in our dialogProc.
+		PostMessage(this->_dialog, WM_APP, 0, 0);
 		return true;
 	}
 
@@ -347,6 +351,12 @@ class App2Clap : public BasePlugin {
 	private:
 	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		auto* plugin = (App2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
+		if (msg == WM_APP) {
+			// Posted by guiShow().
+			HWND hostParent = GetWindow(dialogHwnd, GW_HWNDPREV);
+			ShowWindow(hostParent, false);
+			return TRUE;
+		}
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
