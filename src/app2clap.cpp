@@ -195,7 +195,7 @@ class App2Clap : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		UINT32 bufferSize;
+		UINT32 bufferSize = 0;
 		this->_client->GetBufferSize(&bufferSize);
 		if (FAILED(hr)) {
 			return false;
