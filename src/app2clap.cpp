@@ -31,6 +31,9 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 constexpr DWORD IDLE_PID = 0;
 constexpr DWORD SYSTEM_PID = 4;
 
+//#define dbg(msg) std::cout << "jtd " << msg << std::endl
+#define dbg(msg)
+
 class AutoHandle {
 	public:
 	AutoHandle(): _handle(nullptr) {}
@@ -222,6 +225,13 @@ class App2Clap : public BasePlugin {
 				return false;
 			}
 		}
+		dbg(
+			"activate: maxFrameCount " << maxFrameCount <<
+			" sampleRate " << sampleRate <<
+			" requested bufferDuration " << bufferDuration <<
+			" received bufferSize " << bufferSize <<
+			" threaded " << (bool)event
+		);
 		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
 		if (FAILED(hr)) {
 			return false;
@@ -261,6 +271,10 @@ class App2Clap : public BasePlugin {
 			// There might be multiple packets ready to capture.
 			while (this->_buffer.size() < process->frames_count && this->_doCapture()) {}
 		}
+		dbg(
+			"process: frames_count " << process->frames_count <<
+			" buffer size " << this->_buffer.size()
+		);
 		if (this->_buffer.size() < process->frames_count) {
 			return CLAP_PROCESS_CONTINUE;
 		}
@@ -428,6 +442,7 @@ class App2Clap : public BasePlugin {
 		if (FAILED(hr) || numFrames == 0) {
 			return false;
 		}
+		dbg("_doCapture: captured " << numFrames << " frames");
 		for (UINT32 f = 0; f < numFrames; ++f) {
 			std::pair<float, float> frame;
 			memcpy(&frame, data, BYTES_PER_FRAME);
@@ -445,6 +460,7 @@ class App2Clap : public BasePlugin {
 				return;
 			}
 			this->_doCapture();
+			dbg("thread: size after capture " << this->_buffer.size());
 		}
 	}
 
