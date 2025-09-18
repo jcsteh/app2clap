@@ -16,9 +16,12 @@ const clap_plugin* createApp2Clap(const clap_host* host);
 extern const clap_plugin_descriptor clap2AppDescriptor;
 const clap_plugin* createClap2App(const clap_host* host);
 
+extern const clap_plugin_descriptor in2ClapDescriptor;
+const clap_plugin* createIn2Clap(const clap_host* host);
+
 static const clap_plugin_factory factory = {
 	.get_plugin_count = [] (const clap_plugin_factory* factory) -> uint32_t {
-		return 2;
+		return 3;
 	},
 	.get_plugin_descriptor = [] (const clap_plugin_factory* factory, uint32_t index) -> const clap_plugin_descriptor* {
 		if (index == 0) {
@@ -26,6 +29,9 @@ static const clap_plugin_factory factory = {
 		}
 		if (index == 1) {
 			return &clap2AppDescriptor;
+		}
+		if (index == 2) {
+			return &in2ClapDescriptor;
 		}
 		return nullptr;
 	},
@@ -35,6 +41,9 @@ static const clap_plugin_factory factory = {
 		}
 		if (strcmp(pluginID, clap2AppDescriptor.id) == 0) {
 			return createClap2App(host);
+		}
+		if (strcmp(pluginID, in2ClapDescriptor.id) == 0) {
+			return createIn2Clap(host);
 		}
 		return nullptr;
 	},

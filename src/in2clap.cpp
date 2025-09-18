@@ -1,6 +1,6 @@
 /*
  * App2Clap
- * App2Clap plug-in code
+ * In2Clap plug-in code
  * Author: James Teh <jamie@jantrid.net>
  * Copyright 2025 James Teh
  * License: GNU General Public License version 2.0
@@ -8,10 +8,12 @@
 
 // Avoid min macro conflict with std::min.
 #define NOMINMAX
+#define UNICODE
 
 #include <atlcomcli.h>
 #include <audioclient.h>
-#include <audioclientactivationparams.h>
+#include <functiondiscoverykeys.h>
+#include <Functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 #include <tlhelp32.h>
 #include <windowsx.h>
@@ -30,6 +32,8 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 
 constexpr DWORD IDLE_PID = 0;
 constexpr DWORD SYSTEM_PID = 4;
+
+const uint32_t STATE_VERSION = 1;
 
 //#define dbg(msg) std::cout << "jtd " << msg << std::endl
 #define dbg(msg)
@@ -72,44 +76,13 @@ class AutoHandle {
 	HANDLE _handle;
 };
 
-class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandler {
-	public:
-	ActivateCompletionHandler() {
-		this->_event = CreateEvent(nullptr, true, false, nullptr);
-	}
-
-	void wait() {
-		WaitForSingleObject(this->_event, 5000);
-	}
-
-	// IUnknown
-	ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
-	ULONG STDMETHODCALLTYPE Release() override { return 1; }
-
-	HRESULT STDMETHODCALLTYPE QueryInterface(_In_ REFIID riid,
-		_Outptr_ void** ppInterface
-	) override {
-		*ppInterface = this;
-		return S_OK;
-	}
-
-	// IActivateAudioInterfaceCompletionHandler
-	HRESULT ActivateCompleted(IActivateAudioInterfaceAsyncOperation* activateOperation) override {
-		SetEvent(this->_event);
-		return S_OK;
-	}
-
-	private:
-	AutoHandle _event;
-};
-
 using BasePlugin = clap::helpers::Plugin<
 	clap::helpers::MisbehaviourHandler::Ignore,
 	clap::helpers::CheckingLevel::None
 >;
-class App2Clap : public BasePlugin {
+class In2Clap : public BasePlugin {
 	public:
-	App2Clap(const clap_plugin_descriptor* desc, const clap_host* host)
+	In2Clap(const clap_plugin_descriptor* desc, const clap_host* host)
 		: BasePlugin(desc, host) {}
 
 	protected:
@@ -133,44 +106,21 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (!this->_pid) {
+		if (this->_device.empty()) {
 			return false;
 		}
-		AUDIOCLIENT_ACTIVATION_PARAMS params = {
-			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-		};
-		params.ProcessLoopbackParams.TargetProcessId = this->_pid;
-		params.ProcessLoopbackParams.ProcessLoopbackMode =
-			this->_include ?
-			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
-			PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
-		PROPVARIANT propvar = { .vt = VT_BLOB };
-		propvar.blob.cbSize = sizeof(params);
-		propvar.blob.pBlobData = (BYTE*)&params;
-		auto getClient = [&propvar] () -> CComPtr<IAudioClient> {
-			auto completion = std::make_unique<ActivateCompletionHandler>();
-			CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
-			HRESULT hr = ActivateAudioInterfaceAsync(
-				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-				__uuidof(IAudioClient),
-				&propvar,
-				completion.get(),
-				&asyncOp
-			);
-			if (FAILED(hr)) {
-				return nullptr;
-			}
-			completion->wait();
-			HRESULT asyncHr;
-			CComPtr<IUnknown> activated;
-			hr = asyncOp->GetActivateResult(&asyncHr, &activated);
-			if (FAILED(hr) || FAILED(asyncHr)) {
-				return nullptr;
-			}
-			return CComQIPtr<IAudioClient>(activated);
-		};
-		this->_client = getClient();
-		if (!this->_client) {
+		CComPtr<IMMDeviceEnumerator> enumerator;
+		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
+		if (FAILED(hr)) {
+			return false;
+		}
+		CComPtr<IMMDevice> device;
+		hr = enumerator->GetDevice(this->_device.c_str(), &device);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+		if (FAILED(hr)) {
 			return false;
 		}
 		WAVEFORMATEX format = {
@@ -181,16 +131,13 @@ class App2Clap : public BasePlugin {
 			.nBlockAlign = BYTES_PER_FRAME,
 			.wBitsPerSample = BITS_PER_SAMPLE,
 		};
-		// Contrary to the documentation, IAudioClient::Initialize ignores the buffer
-		// duration here and can return a smaller buffer. We provide it anyway, but
-		// it can't be relied upon.
-		const REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
-			REFTIMES_PER_SEC / sampleRate;
-		HRESULT hr = this->_client->Initialize(
+		// IAudioClient::Initialize respects the buffer size during initialisation.
+		// However, when capturing, it can return a much smaller buffer, so there's
+		// no point in requesting a particular buffer size.
+		hr = this->_client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-			AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			bufferDuration, 0, &format, nullptr
+			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			0, 0, &format, nullptr
 		);
 		if (FAILED(hr)) {
 			return false;
@@ -201,20 +148,19 @@ class App2Clap : public BasePlugin {
 			return false;
 		}
 		AutoHandle event;
-		if (true || bufferSize * 3 < maxFrameCount) {
-			// Windows will only buffer 3 packets at a time. If the host max frame
-			// count is larger than that, capture audio in a background thread to
-			// avoid continual buffer underruns. Note that the thread is less optimal
-			// (and results in glitches) when the host max frame count is lower.
-			this->_client = getClient();
-			if (!this->_client) {
+		if (bufferSize < maxFrameCount) {
+			// The host max frame count is larger than the device buffer. Capture audio
+			// in a background thread to avoid continual buffer underruns. Note that the
+			// thread is less optimal when the host max frame count is lower.
+			hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+			if (FAILED(hr)) {
 				return false;
 			}
 			hr = this->_client->Initialize(
 				AUDCLNT_SHAREMODE_SHARED,
-				AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
 				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				bufferDuration, 0, &format, nullptr
+				0, 0, &format, nullptr
 			);
 			if (FAILED(hr)) {
 				return false;
@@ -228,7 +174,6 @@ class App2Clap : public BasePlugin {
 		dbg(
 			"activate: maxFrameCount " << maxFrameCount <<
 			" sampleRate " << sampleRate <<
-			" requested bufferDuration " << bufferDuration <<
 			" received bufferSize " << bufferSize <<
 			" threaded " << (bool)event
 		);
@@ -327,30 +272,50 @@ class App2Clap : public BasePlugin {
 		// We create the dialog here instead of guiCreate because CreateDialog needs
 		// the parent HWND in order to make a DS_CHILD dialog.
 		this->_dialog = CreateDialog(
-			HINST_THISDLL, MAKEINTRESOURCE(ID_APP2CLAP_DLG),
+			HINST_THISDLL, MAKEINTRESOURCE(ID_IN2CLAP_DLG),
 			// hack: Use the grandparent so tabbing works in REAPER.
-			GetParent((HWND)window->win32), App2Clap::dialogProc
+			GetParent((HWND)window->win32), In2Clap::dialogProc
 		);
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
-		this->_processCombo = GetDlgItem(this->_dialog, ID_PROCESS);
-		this->buildProcessList();
-		if (this->_pid == SYSTEM_PID) {
-			CheckDlgButton(this->_dialog, ID_EVERYTHING, BST_CHECKED);
-			this->enableProcessChoice(false);
-		} else {
-			CheckDlgButton(
-				this->_dialog,
-				this->_include ? ID_PROCESS_INCLUDE : ID_PROCESS_EXCLUDE,
-				BST_CHECKED
-			);
-			this->enableProcessChoice(true);
+		this->_deviceCombo = GetDlgItem(this->_dialog, ID_DEVICE);
+		this->buildDeviceList();
+		return true;
+	}
+
+	bool implementsState() const noexcept override { return true; }
+
+	bool stateSave(const clap_ostream* stream) noexcept override {
+		stream->write(stream, &STATE_VERSION, sizeof(uint32_t));
+		const size_t nBytes = this->_device.size() * sizeof(wchar_t);
+		stream->write(stream, &nBytes, sizeof(size_t));
+		const wchar_t* device = this->_device.c_str();
+		stream->write(stream, device, nBytes);
+		return true;
+	}
+
+	bool stateLoad(const clap_istream* stream) noexcept override {
+		uint32_t version = 0;
+		stream->read(stream, &version, sizeof(uint32_t));
+		if (version != STATE_VERSION) {
+			return false;
 		}
+		size_t nBytes = 0;
+		stream->read(stream, &nBytes, sizeof(size_t));
+		if (nBytes == 0) {
+			return true;
+		}
+		const size_t nChars = nBytes / sizeof(wchar_t);
+		auto device = std::make_unique<wchar_t[]>(nChars);
+		stream->read(stream, device.get(), nBytes);
+		this->_device = std::wstring(device.get(), nChars);
+		// Restart the plugin. We will set up the send in activate().
+		this->_host.host()->request_restart(this->_host.host());
 		return true;
 	}
 
 	private:
 	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		auto* plugin = (App2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
+		auto* plugin = (In2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
 		if (msg == WM_APP) {
 			// Posted by guiShow().
 			HWND hostParent = GetWindow(dialogHwnd, GW_HWNDPREV);
@@ -359,31 +324,14 @@ class App2Clap : public BasePlugin {
 		}
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
-			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
-				plugin->enableProcessChoice(!IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING));
-				return TRUE;
-			}
-			if (
-				cid == ID_REFRESH ||
-				(cid == ID_FILTER && HIWORD(wParam) == EN_KILLFOCUS)
-			) {
-				plugin->buildProcessList();
-				return TRUE;
-			}
 			if (cid == ID_CAPTURE) {
-				if (IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING)) {
-					plugin->_pid = SYSTEM_PID;
-					plugin->_include = false;
-				} else {
-					const int choice = ComboBox_GetCurSel(plugin->_processCombo);
-					if (choice == CB_ERR) {
-						plugin->_pid = 0;
-					} else {
-						plugin->_pid = plugin->_pids[choice];
-					}
-					plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
+				const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
+				if (choice == CB_ERR) {
+					// The user hasn't chosen a device yet.
+					return TRUE;
 				}
-				// Restart the plugin. We will set up the capture in activate().
+				plugin->_device = plugin->_devices[choice];
+				// Restart the plugin. We will set up the send in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
@@ -391,46 +339,51 @@ class App2Clap : public BasePlugin {
 		return FALSE;
 	}
 
-	void buildProcessList() {
-		char rawFilter[100];
-		GetDlgItemText(this->_dialog, ID_FILTER, rawFilter, sizeof(rawFilter));
-		std::string filter = rawFilter;
-		// We want to match case insensitively, so convert to lower case.
-		std::transform(filter.begin(), filter.end(), filter.begin(), std::tolower);
-		PROCESSENTRY32 entry;
-		entry.dwSize = sizeof(PROCESSENTRY32);
-		HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-		if (!Process32First(snapshot, &entry)) {
-			CloseHandle(snapshot);
+	void buildDeviceList() {
+		this->_devices.clear();
+		ComboBox_ResetContent(this->_deviceCombo);
+		CComPtr<IMMDeviceEnumerator> enumerator;
+		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
+		if (FAILED(hr)) {
 			return;
 		}
-		const int choice = ComboBox_GetCurSel(this->_processCombo);
-		DWORD chosenPid = choice == CB_ERR ? this->_pid : this->_pids[choice];
-		this->_pids.clear();
-		ComboBox_ResetContent(this->_processCombo);
-		do {
-			if (entry.th32ProcessID == IDLE_PID || entry.th32ProcessID == SYSTEM_PID) {
+		CComPtr<IMMDeviceCollection> devices;
+		hr = enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &devices);
+		if (FAILED(hr)) {
+			return;
+		}
+		UINT count = 0;
+		devices->GetCount(&count);
+		for (UINT d = 0; d < count; ++d) {
+			CComPtr<IMMDevice> device;
+			hr = devices->Item(d, &device);
+			if (FAILED(hr)) {
 				continue;
 			}
-			std::ostringstream s;
-			s << entry.szExeFile << " " << entry.th32ProcessID;
-			bool include = filter.empty();
-			if (!include) {
-				// Convert to lower case for match.
-				std::string lower = s.str();
-				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
-				include = lower.find(filter) != std::string::npos;
+			wchar_t* id;
+			hr = device->GetId(&id);
+			if (FAILED(hr)) {
+				continue;
 			}
-			if (include) {
-				ComboBox_AddString(this->_processCombo, s.str().c_str());
-				if (entry.th32ProcessID == chosenPid) {
-					// Select the previously chosen process.
-					ComboBox_SetCurSel(this->_processCombo, this->_pids.size());
-				}
-				this->_pids.push_back(entry.th32ProcessID);
+			this->_devices.push_back(id);
+			const bool selected = this->_device == id;
+			CoTaskMemFree(id);
+			CComPtr<IPropertyStore> props;
+			hr = device->OpenPropertyStore(STGM_READ, &props);
+			if (FAILED(hr)) {
+				return;
 			}
-		} while (Process32Next(snapshot, &entry));
-		CloseHandle(snapshot);
+			PROPVARIANT val;
+			hr = props->GetValue(PKEY_Device_FriendlyName, &val);
+			if (FAILED(hr)) {
+				return;
+			}
+			ComboBox_AddString(this->_deviceCombo, val.pwszVal);
+			if (selected) {
+				// Select the previously chosen device.
+				ComboBox_SetCurSel(this->_deviceCombo, this->_devices.size() - 1);
+			}
+		}
 	}
 
 	bool _doCapture() {
@@ -474,33 +427,25 @@ class App2Clap : public BasePlugin {
 		}
 	}
 
-	void enableProcessChoice(bool enable) {
-		EnableWindow(this->_processCombo, enable);
-		EnableWindow(GetDlgItem(this->_dialog, ID_FILTER), enable);
-		EnableWindow(GetDlgItem(this->_dialog, ID_REFRESH), enable);
-	}
-
 	CComPtr<IAudioClient> _client;
 	CComPtr<IAudioCaptureClient> _capture;
 	// A buffer to store audio we've captured but not yet sent to the host.
 	using Buffer = CircularBuffer<std::pair<float, float>>;
 	Buffer _buffer{0};
 	HWND _dialog = nullptr;
-	HWND _processCombo = nullptr;
-	// The process ids we have found.
-	std::vector<DWORD> _pids;
-	// The chosen pid.
-	DWORD _pid = 0;
-	// Whether to include audio from this pid or exclude audio from this pid.
-	bool _include = true;
+	HWND _deviceCombo = nullptr;
+	// The devices we have found.
+	std::vector<std::wstring> _devices;
+	// The chosen device.
+	std::wstring _device;
 	std::thread _captureThread;
 	AutoHandle _captureEvent;
 };
 
-extern const clap_plugin_descriptor app2ClapDescriptor = {
+extern const clap_plugin_descriptor in2ClapDescriptor = {
 	.clap_version = CLAP_VERSION_INIT,
-	.id = "jantrid.app2clap",
-	.name = "App2Clap",
+	.id = "jantrid.in2clap",
+	.name = "In2Clap",
 	.vendor = "James Teh",
 	.url = "",
 	.manual_url = "",
@@ -513,7 +458,7 @@ extern const clap_plugin_descriptor app2ClapDescriptor = {
 	}
 };
 
-const clap_plugin* createApp2Clap(const clap_host* host) {
-	auto plugin = new App2Clap(&app2ClapDescriptor, host);
+const clap_plugin* createIn2Clap(const clap_host* host) {
+	auto plugin = new In2Clap(&in2ClapDescriptor, host);
 	return plugin->clapPlugin();
 }

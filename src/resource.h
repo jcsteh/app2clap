@@ -19,3 +19,5 @@
 #define ID_CLAP2APP_DLG 200
 #define ID_DEVICE 201
 #define ID_SEND 202
+
+#define ID_IN2CLAP_DLG 300
