@@ -37,7 +37,6 @@ jobs:
       - name: setup
         run: pip install scons
       - name: SCons MSVC Cache
-        if: ${{ matrix.os == 'windows-latest' }}
         uses: actions/cache@v4
         with:
           path: ~\scons_msvc_cache.json
@@ -60,6 +59,7 @@ jobs:
           tag_name: snapshots
       # We upload pull request builds as normal artifacts.
       - name: upload PR build
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: app2clap_${{ env.version }}
