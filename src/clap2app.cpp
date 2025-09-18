@@ -88,12 +88,12 @@ class Clap2App : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
-			REFTIMES_PER_SEC / sampleRate;
+		// Get the device's minimum buffer size. We will use this to determine when
+		// we're ready to start playback.
 		hr = this->_client->Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
 			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			bufferDuration, 0, &format, nullptr
+			0, 0, &format, nullptr
 		);
 		if (FAILED(hr)) {
 			return false;
@@ -102,33 +102,26 @@ class Clap2App : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		if (this->_renderMinFrames > maxFrameCount) {
-			// The device's minimum buffer size is larger than the host's max frame
-			// count. This means we need to buffer across host chunks, so we need to
-			// ensure the buffer has enough space to contain an additional host chunk,
-			// since the device's minimum buffer size might not be a multiple of a host
-			// chunk.
-			hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
-			if (FAILED(hr)) {
-				return false;
-			}
-			REFERENCE_TIME bufferDuration =
-				(REFERENCE_TIME)(this->_renderMinFrames + maxFrameCount) *
-				REFTIMES_PER_SEC / sampleRate;
-			hr = this->_client->Initialize(
-				AUDCLNT_SHAREMODE_SHARED,
-				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-				bufferDuration, 0, &format, nullptr
-			);
-			if (FAILED(hr)) {
-				return false;
-			}
-			hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
-			if (FAILED(hr)) {
-				return false;
-			}
-		} else {
-			this->_renderBufferFrames = this->_renderMinFrames;
+		// The device will still be playing the last host chunk when we send another
+		// one. It can also take a while to begin playback. Therefore, use a large
+		// buffer. This makes playback more tolerant to other unanticipated causes of
+		// underruns too.
+		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+		if (FAILED(hr)) {
+			return false;
+		}
+		const REFERENCE_TIME bufferDuration = REFTIMES_PER_SEC * 5;
+		hr = this->_client->Initialize(
+			AUDCLNT_SHAREMODE_SHARED,
+			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			bufferDuration, 0, &format, nullptr
+		);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
+		if (FAILED(hr)) {
+			return false;
 		}
 		dbg(
 			"activate maxFrameCount " << maxFrameCount <<
