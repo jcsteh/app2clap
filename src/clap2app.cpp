@@ -30,6 +30,9 @@ EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 
 const uint32_t STATE_VERSION = 1;
 
+//#define dbg(msg) std::cout << "jtd " << msg << std::endl
+#define dbg(msg)
+
 using BasePlugin = clap::helpers::Plugin<
 	clap::helpers::MisbehaviourHandler::Ignore,
 	clap::helpers::CheckingLevel::None
@@ -127,6 +130,13 @@ class Clap2App : public BasePlugin {
 		} else {
 			this->_renderBufferFrames = this->_renderMinFrames;
 		}
+		dbg(
+			"activate maxFrameCount " << maxFrameCount <<
+			" sampleRate " << sampleRate <<
+			" requested bufferDuration " << bufferDuration <<
+			" _renderMinFrames " << this->_renderMinFrames <<
+			" _renderBufferFrames " << this->_renderBufferFrames
+		);
 		hr = this->_client->GetService(__uuidof(IAudioRenderClient), (void**)&this->_render);
 		if (FAILED(hr)) {
 			return false;
@@ -156,6 +166,11 @@ class Clap2App : public BasePlugin {
 			process->frames_count,
 			this->_renderBufferFrames - paddingFrames
 		);
+		dbg(
+			"process: frames_count " << process->frames_count <<
+			" paddingFrames " << paddingFrames <<
+			" sendFrames " << sendFrames
+		);
 		BYTE* data;
 		hr = this->_render->GetBuffer(sendFrames, &data);
 		if (FAILED(hr)) {
@@ -178,6 +193,7 @@ class Clap2App : public BasePlugin {
 		this->_render->ReleaseBuffer(sendFrames, 0);
 		if (paddingFrames + sendFrames >= this->_renderMinFrames) {
 			// There's enough in the render buffer to begin playback.
+			dbg("process: begin playback");
 			this->_client->Start();
 		}
 		return CLAP_PROCESS_CONTINUE;
@@ -187,6 +203,7 @@ class Clap2App : public BasePlugin {
 		if (!this->_client) {
 			return;
 		}
+		dbg("reset");
 		this->_client->Stop();
 		this->_client->Reset();
 	}
