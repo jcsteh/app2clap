@@ -6,8 +6,7 @@
  * License: GNU General Public License version 2.0
  */
 
-// Avoid min macro conflict with std::min.
-#define NOMINMAX
+#include "common.h"
 
 #include <atlcomcli.h>
 #include <audioclient.h>
@@ -22,17 +21,10 @@
 #include "circular_buffer.h"
 #include "clap/helpers/plugin.hxx"
 
-#include "common.h"
 #include "resource.h"
-
-EXTERN_C IMAGE_DOS_HEADER __ImageBase;
-#define HINST_THISDLL ((HINSTANCE)&__ImageBase)
 
 constexpr DWORD IDLE_PID = 0;
 constexpr DWORD SYSTEM_PID = 4;
-
-//#define dbg(msg) std::cout << "jtd " << msg << std::endl
-#define dbg(msg)
 
 class AutoHandle {
 	public:
@@ -392,9 +384,9 @@ class App2Clap : public BasePlugin {
 	}
 
 	void buildProcessList() {
-		char rawFilter[100];
-		GetDlgItemText(this->_dialog, ID_FILTER, rawFilter, sizeof(rawFilter));
-		std::string filter = rawFilter;
+		wchar_t rawFilter[100];
+		GetDlgItemText(this->_dialog, ID_FILTER, rawFilter, _countof(rawFilter));
+		std::wstring filter = rawFilter;
 		// We want to match case insensitively, so convert to lower case.
 		std::transform(filter.begin(), filter.end(), filter.begin(), std::tolower);
 		PROCESSENTRY32 entry;
@@ -412,12 +404,12 @@ class App2Clap : public BasePlugin {
 			if (entry.th32ProcessID == IDLE_PID || entry.th32ProcessID == SYSTEM_PID) {
 				continue;
 			}
-			std::ostringstream s;
+			std::wostringstream s;
 			s << entry.szExeFile << " " << entry.th32ProcessID;
 			bool include = filter.empty();
 			if (!include) {
 				// Convert to lower case for match.
-				std::string lower = s.str();
+				std::wstring lower = s.str();
 				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
 				include = lower.find(filter) != std::string::npos;
 			}

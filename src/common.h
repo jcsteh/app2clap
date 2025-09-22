@@ -8,6 +8,19 @@
 
 #pragma once
 
+// Avoid min macro conflict with std::min.
+#define NOMINMAX
+#define UNICODE
+
+#include <dshow.h>
+#include <windows.h>
+
+EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+#define HINST_THISDLL ((HINSTANCE)&__ImageBase)
+
+//#define dbg(msg) std::cout << "jtd " << msg << std::endl
+#define dbg(msg)
+
 constexpr WORD NUM_CHANNELS = 2;
 constexpr WORD BYTES_PER_FRAME = sizeof(float) * NUM_CHANNELS;
 constexpr WORD BITS_PER_SAMPLE = sizeof(float) * 8;

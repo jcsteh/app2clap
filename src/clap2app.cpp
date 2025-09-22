@@ -6,9 +6,7 @@
  * License: GNU General Public License version 2.0
  */
 
-// Avoid min macro conflict with std::min.
-#define NOMINMAX
-#define UNICODE
+#include "common.h"
 
 #include <atlcomcli.h>
 #include <audioclient.h>
@@ -22,16 +20,9 @@
 
 #include "clap/helpers/plugin.hxx"
 
-#include "common.h"
 #include "resource.h"
 
-EXTERN_C IMAGE_DOS_HEADER __ImageBase;
-#define HINST_THISDLL ((HINSTANCE)&__ImageBase)
-
 const uint32_t STATE_VERSION = 1;
-
-//#define dbg(msg) std::cout << "jtd " << msg << std::endl
-#define dbg(msg)
 
 using BasePlugin = clap::helpers::Plugin<
 	clap::helpers::MisbehaviourHandler::Ignore,
