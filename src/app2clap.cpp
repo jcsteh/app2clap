@@ -193,7 +193,7 @@ class App2Clap : public BasePlugin {
 			return false;
 		}
 		AutoHandle event;
-		if (true || bufferSize * 3 < maxFrameCount) {
+		if (bufferSize * 3 < maxFrameCount) {
 			// Windows will only buffer 3 packets at a time. If the host max frame
 			// count is larger than that, capture audio in a background thread to
 			// avoid continual buffer underruns. Note that the thread is less optimal
@@ -228,7 +228,6 @@ class App2Clap : public BasePlugin {
 		if (FAILED(hr)) {
 			return false;
 		}
-		this->_buffer = Buffer(std::max(bufferSize, maxFrameCount) * 2);
 		if (event) {
 			this->_captureEvent =std::move(event);
 			this->_captureThread = std::thread([this] {
@@ -476,7 +475,10 @@ class App2Clap : public BasePlugin {
 	CComPtr<IAudioCaptureClient> _capture;
 	// A buffer to store audio we've captured but not yet sent to the host.
 	using Buffer = CircularBuffer<std::pair<float, float>>;
-	Buffer _buffer{0};
+	// Windows sometimes returns a much smaller buffer size than the size of the
+	// packets it subsequently returns. Since we can't trust that, just use a
+	// large constant buffer size.
+	Buffer _buffer{24576};
 	HWND _dialog = nullptr;
 	HWND _processCombo = nullptr;
 	// The process ids we have found.
