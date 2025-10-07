@@ -24,10 +24,6 @@
 
 const uint32_t STATE_VERSION = 1;
 
-using BasePlugin = clap::helpers::Plugin<
-	clap::helpers::MisbehaviourHandler::Ignore,
-	clap::helpers::CheckingLevel::None
->;
 class Clap2App : public BasePlugin {
 	public:
 	Clap2App(const clap_plugin_descriptor* desc, const clap_host* host)

@@ -26,44 +26,6 @@
 constexpr DWORD IDLE_PID = 0;
 constexpr DWORD SYSTEM_PID = 4;
 
-class AutoHandle {
-	public:
-	AutoHandle(): _handle(nullptr) {}
-	AutoHandle(HANDLE handle): _handle(handle) {}
-	AutoHandle(AutoHandle& handle) = delete;
-
-	~AutoHandle() {
-		if (this->_handle) {
-			CloseHandle(this->_handle);
-		}
-	}
-
-	AutoHandle& operator=(HANDLE newHandle) {
-		if (this->_handle) {
-			CloseHandle(this->_handle);
-		}
-		this->_handle = newHandle;
-		return *this;
-	}
-
-	// Don't allow copy assignment, since the other AutoHandle will close the
-	// handle when it is destroyed.
-	AutoHandle& operator=(const AutoHandle& newHandle) = delete;
-
-	AutoHandle& operator=(AutoHandle&& newHandle) {
-		this->_handle = newHandle._handle;
-		newHandle._handle = nullptr;
-		return *this;
-	}
-
-	operator HANDLE() {
-		return this->_handle;
-	}
-
-	private:
-	HANDLE _handle;
-};
-
 class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandler {
 	public:
 	ActivateCompletionHandler() {
@@ -95,10 +57,6 @@ class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandle
 	AutoHandle _event;
 };
 
-using BasePlugin = clap::helpers::Plugin<
-	clap::helpers::MisbehaviourHandler::Ignore,
-	clap::helpers::CheckingLevel::None
->;
 class App2Clap : public BasePlugin {
 	public:
 	App2Clap(const clap_plugin_descriptor* desc, const clap_host* host)
