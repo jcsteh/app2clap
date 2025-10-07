@@ -39,7 +39,10 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
 7. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
     You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
-8. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
+8. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
+    If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
+    This may also be true in other DAWs, but this hasn't been confirmed.
+9. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
     This is because input monitoring only affects input via the DAW, not output from a plug-in.
     To prevent captured audio from being heard, you can mute the track or disable the track's send to the master output.
     If you want to hear audio previously recorded on that track instead of the live audio from the captured application, you can temporarily bypass the plug-in.
@@ -59,7 +62,10 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 5. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.
 6. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
     You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
-7. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
+7. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
+    If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
+    This may also be true in other DAWs, but this hasn't been confirmed.
+8. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
     This is because input monitoring only affects input via the DAW, not output from a plug-in.
     To prevent captured audio from being heard, you can mute the track or disable the track's send to the master output.
     If you want to hear audio previously recorded on that track instead of the live audio from the captured device, you can temporarily bypass the plug-in.
