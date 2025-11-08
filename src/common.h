@@ -70,3 +70,7 @@ class AutoHandle {
 	private:
 	HANDLE _handle;
 };
+
+HWND createDialog(HWND parent, int resourceId, DLGPROC dialogProc);
+bool guiShowCommon(HWND dialog);
+bool dialogProcCommon(HWND dialog, UINT msg);
