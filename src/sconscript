@@ -26,6 +26,7 @@ env.SharedLibrary(
 	source=(
 		"app2clap.cpp",
 		"clap2app.cpp",
+		"common.cpp",
 		"entry.cpp",
 		"in2clap.cpp",
 		env.RES("resource.rc")

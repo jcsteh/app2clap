@@ -204,12 +204,7 @@ class In2Clap : public BasePlugin {
 	}
 
 	bool guiShow() noexcept override {
-		ShowWindow(this->_dialog, SW_SHOW);
-		// We need to hide the parent we were supposed to use so hit testing works.
-		// However, REAPER calls ShowWindow after this, so we can't do it here.
-		// Instead, we handle this in our dialogProc.
-		PostMessage(this->_dialog, WM_APP, 0, 0);
-		return true;
+		return guiShowCommon(this->_dialog);
 	}
 
 	bool guiHide() noexcept override {
@@ -220,11 +215,8 @@ class In2Clap : public BasePlugin {
 	bool guiSetParent(const clap_window* window) noexcept override {
 		// We create the dialog here instead of guiCreate because CreateDialog needs
 		// the parent HWND in order to make a DS_CHILD dialog.
-		this->_dialog = CreateDialog(
-			HINST_THISDLL, MAKEINTRESOURCE(ID_IN2CLAP_DLG),
-			// hack: Use the grandparent so tabbing works in REAPER.
-			GetParent((HWND)window->win32), In2Clap::dialogProc
-		);
+		this->_dialog = createDialog((HWND)window->win32, ID_IN2CLAP_DLG,
+			In2Clap::dialogProc);
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
 		this->_deviceCombo = GetDlgItem(this->_dialog, ID_DEVICE);
 		this->buildDeviceList();
@@ -264,13 +256,10 @@ class In2Clap : public BasePlugin {
 
 	private:
 	static INT_PTR CALLBACK dialogProc(HWND dialogHwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-		auto* plugin = (In2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
-		if (msg == WM_APP) {
-			// Posted by guiShow().
-			HWND hostParent = GetWindow(dialogHwnd, GW_HWNDPREV);
-			ShowWindow(hostParent, false);
+		if (dialogProcCommon(dialogHwnd, msg)) {
 			return TRUE;
 		}
+		auto* plugin = (In2Clap*)GetWindowLongPtr(dialogHwnd, GWLP_USERDATA);
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_CAPTURE) {
