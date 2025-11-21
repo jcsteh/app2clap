@@ -68,7 +68,7 @@ jobs:
       version: ${{ env.version }}
       # These will only be set for snapshot builds. This is possible because
       # outputs won't be set if the value is empty.
-      downloadUrl: ${{ fromJSON(steps.uploadBuild.outputs.assets)[0].browser_download_url }}
+      downloadUrl: ${{ steps.uploadBuild.outputs.assets && fromJSON(steps.uploadBuild.outputs.assets)[0].browser_download_url }}
   publish:
     # This job updates the website with the new readme and snapshots.
     if: ${{ github.event_name == 'push' }}
