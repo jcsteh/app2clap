@@ -38,7 +38,9 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 5. If you want to capture a different process, change the settings and press Capture again.
 6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
 7. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
+    In REAPER, you do this by opening the track's recording context menu, choosing the Record: output sub-menu and then Record: output (stereo).
     You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
+    In REAPER, you do this by opening the Record: output menu and choosing Output mode: Pre-Fader (Post-FX).
 8. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
     If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
     This may also be true in other DAWs, but this hasn't been confirmed.
@@ -61,7 +63,9 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 4. If you want to change the input device, change the settings and press Capture again.
 5. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.
 6. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
+    In REAPER, you do this by opening the track's recording context menu, choosing the Record: output sub-menu and then Record: output (stereo).
     You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
+    In REAPER, you do this by opening the Record: output menu and choosing Output mode: Pre-Fader (Post-FX).
 7. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
     If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
     This may also be true in other DAWs, but this hasn't been confirmed.
