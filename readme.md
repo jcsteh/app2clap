@@ -34,6 +34,8 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
     Note that capturing everything could cause feedback, as it may capture the output of your DAW itself.
 3. Select a process from the list.
     You can filter the list to show only certain processes by typing part of the executable name or process id into the Filter text box.
+    Processes are sorted so that processes that were created earlier appear first, which means that parent processes appear before their child processes.
+    This is useful when dealing with applications that create multiple processes.
 4. Press Capture to start capturing.
 5. If you want to capture a different process, change the settings and press Capture again.
 6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.

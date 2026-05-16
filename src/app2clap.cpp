@@ -57,6 +57,26 @@ class ActivateCompletionHandler : public IActivateAudioInterfaceCompletionHandle
 	AutoHandle _event;
 };
 
+struct Process {
+	FILETIME creationTime;
+	DWORD pid;
+	std::wstring exe;
+
+	Process(const PROCESSENTRY32& entry):
+	pid(entry.th32ProcessID), exe(entry.szExeFile) {
+		FILETIME exitTime, kernelTime, userTime;
+		AutoHandle process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION , false,
+			this->pid);
+		GetProcessTimes(process, &this->creationTime, &exitTime, &kernelTime,
+			&userTime);
+	}
+
+	bool operator<(const Process& other) {
+		// Order by creation time.
+		return CompareFileTime(&this->creationTime, &other.creationTime) == -1;
+	}
+};
+
 class App2Clap : public BasePlugin {
 	public:
 	App2Clap(const clap_plugin_descriptor* desc, const clap_host* host)
@@ -337,21 +357,26 @@ class App2Clap : public BasePlugin {
 		std::transform(filter.begin(), filter.end(), filter.begin(), std::tolower);
 		PROCESSENTRY32 entry;
 		entry.dwSize = sizeof(PROCESSENTRY32);
-		HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		AutoHandle snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 		if (!Process32First(snapshot, &entry)) {
-			CloseHandle(snapshot);
 			return;
 		}
 		const int choice = ComboBox_GetCurSel(this->_processCombo);
 		DWORD chosenPid = choice == CB_ERR ? this->_pid : this->_pids[choice];
 		this->_pids.clear();
 		ComboBox_ResetContent(this->_processCombo);
+		std::vector<Process> processes;
 		do {
 			if (entry.th32ProcessID == IDLE_PID || entry.th32ProcessID == SYSTEM_PID) {
 				continue;
 			}
+			processes.emplace_back(entry);
+		} while (Process32Next(snapshot, &entry));
+		// Sort processes by creation time so parent processes always appear first.
+		std::sort(processes.begin(), processes.end());
+		for (const auto& process: processes) {
 			std::wostringstream s;
-			s << entry.szExeFile << " " << entry.th32ProcessID;
+			s << process.exe << " " << process.pid;
 			bool include = filter.empty();
 			if (!include) {
 				// Convert to lower case for match.
@@ -361,14 +386,13 @@ class App2Clap : public BasePlugin {
 			}
 			if (include) {
 				ComboBox_AddString(this->_processCombo, s.str().c_str());
-				if (entry.th32ProcessID == chosenPid) {
+				if (process.pid == chosenPid) {
 					// Select the previously chosen process.
 					ComboBox_SetCurSel(this->_processCombo, this->_pids.size());
 				}
-				this->_pids.push_back(entry.th32ProcessID);
+				this->_pids.push_back(process.pid);
 			}
-		} while (Process32Next(snapshot, &entry));
-		CloseHandle(snapshot);
+		}
 	}
 
 	bool _doCapture() {
