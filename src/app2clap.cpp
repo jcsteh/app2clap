@@ -2,7 +2,7 @@
  * App2Clap
  * App2Clap plug-in code
  * Author: James Teh <jamie@jantrid.net>
- * Copyright 2025 James Teh
+ * Copyright 2025-2026 James Teh
  * License: GNU General Public License version 2.0
  */
 
@@ -61,6 +61,7 @@ struct Process {
 	FILETIME creationTime;
 	DWORD pid;
 	std::wstring exe;
+	std::wstring desc;
 
 	Process(const PROCESSENTRY32& entry):
 	pid(entry.th32ProcessID), exe(entry.szExeFile) {
@@ -69,6 +70,9 @@ struct Process {
 			this->pid);
 		GetProcessTimes(process, &this->creationTime, &exitTime, &kernelTime,
 			&userTime);
+		std::wostringstream s;
+		s << this->exe << " " << this->pid;
+		this->desc = s.str();
 	}
 
 	bool operator<(const Process& other) {
@@ -77,7 +81,7 @@ struct Process {
 	}
 };
 
-const uint32_t STATE_VERSION = 1;
+const uint32_t STATE_VERSION = 2;
 
 class App2Clap : public BasePlugin {
 	public:
@@ -106,7 +110,17 @@ class App2Clap : public BasePlugin {
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
 		if (!this->_pid) {
-			return false;
+			if (!this->_captureFirstMatching || this->_filter.empty()) {
+				// Nothing to capture yet.
+				return false;
+			}
+			// We're capturing the first matching process.
+			this->buildProcessList();
+			if (this->_processes.empty()) {
+				// No matching processes.
+				return false;
+			}
+			this->_pid = this->_processes[0].pid;
 		}
 		AUDIOCLIENT_ACTIVATION_PARAMS params = {
 			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
@@ -278,6 +292,7 @@ class App2Clap : public BasePlugin {
 
 	void guiDestroy() noexcept override {
 		DestroyWindow(this->_dialog);
+		this->_dialog = this->_processCombo = nullptr;
 	}
 
 	bool guiShow() noexcept override {
@@ -308,6 +323,8 @@ class App2Clap : public BasePlugin {
 			);
 			this->enableProcessChoice(true);
 			SetDlgItemText(this->_dialog, ID_FILTER, this->_filter.c_str());
+			CheckDlgButton(this->_dialog, ID_FIRST,
+				this->_captureFirstMatching ? BST_CHECKED : BST_UNCHECKED);
 		}
 		return true;
 	}
@@ -323,6 +340,7 @@ class App2Clap : public BasePlugin {
 		stream->write(stream, &nBytes, sizeof(size_t));
 		const wchar_t* filter = this->_filter.c_str();
 		stream->write(stream, filter, nBytes);
+		stream->write(stream, &this->_captureFirstMatching, sizeof(bool));
 		return true;
 	}
 
@@ -346,6 +364,7 @@ class App2Clap : public BasePlugin {
 			stream->read(stream, filter.get(), nBytes);
 			this->_filter = std::wstring(filter.get(), nChars);
 		}
+		stream->read(stream, &this->_captureFirstMatching, sizeof(bool));
 		// Restart the plugin. We will set up the send in activate().
 		this->_host.host()->request_restart(this->_host.host());
 		return true;
@@ -361,6 +380,11 @@ class App2Clap : public BasePlugin {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
 				plugin->enableProcessChoice(!IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING));
+				return TRUE;
+			}
+			if (cid == ID_FIRST) {
+				plugin->_captureFirstMatching = IsDlgButtonChecked(dialogHwnd,
+					ID_FIRST);
 				return TRUE;
 			}
 			if (cid == ID_FILTER && HIWORD(wParam) == EN_KILLFOCUS) {
@@ -386,7 +410,7 @@ class App2Clap : public BasePlugin {
 					if (choice == CB_ERR) {
 						plugin->_pid = 0;
 					} else {
-						plugin->_pid = plugin->_pids[choice];
+						plugin->_pid = plugin->_processes[choice].pid;
 					}
 					plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
 				}
@@ -405,36 +429,41 @@ class App2Clap : public BasePlugin {
 		if (!Process32First(snapshot, &entry)) {
 			return;
 		}
-		const int choice = ComboBox_GetCurSel(this->_processCombo);
-		DWORD chosenPid = choice == CB_ERR ? this->_pid : this->_pids[choice];
-		this->_pids.clear();
-		ComboBox_ResetContent(this->_processCombo);
-		std::vector<Process> processes;
+		DWORD chosenPid = this->_pid;
+		if (this->_processCombo) {
+			const int choice = ComboBox_GetCurSel(this->_processCombo);
+			if (choice != CB_ERR) {
+				chosenPid = this->_processes[choice].pid;
+			}
+			ComboBox_ResetContent(this->_processCombo);
+		}
+		this->_processes.clear();
 		do {
 			if (entry.th32ProcessID == IDLE_PID || entry.th32ProcessID == SYSTEM_PID) {
 				continue;
 			}
-			processes.emplace_back(entry);
+			Process process(entry);
+			if (!this->_filter.empty()) {
+				// Convert to lower case for match.
+				std::wstring lower = process.desc;
+				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
+				if (lower.find(this->_filter) == std::string::npos) {
+					continue;
+				}
+			}
+			this->_processes.push_back(std::move(process));
 		} while (Process32Next(snapshot, &entry));
 		// Sort processes by creation time so parent processes always appear first.
-		std::sort(processes.begin(), processes.end());
-		for (const auto& process: processes) {
-			std::wostringstream s;
-			s << process.exe << " " << process.pid;
-			bool include = this->_filter.empty();
-			if (!include) {
-				// Convert to lower case for match.
-				std::wstring lower = s.str();
-				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
-				include = lower.find(this->_filter) != std::string::npos;
-			}
-			if (include) {
-				ComboBox_AddString(this->_processCombo, s.str().c_str());
-				if (process.pid == chosenPid) {
-					// Select the previously chosen process.
-					ComboBox_SetCurSel(this->_processCombo, this->_pids.size());
-				}
-				this->_pids.push_back(process.pid);
+		std::sort(this->_processes.begin(), this->_processes.end());
+		if (!this->_processCombo) {
+			return;
+		}
+		for (const auto& process: this->_processes) {
+			ComboBox_AddString(this->_processCombo, process.desc.c_str());
+			if (process.pid == chosenPid) {
+				// Select the previously chosen process.
+				ComboBox_SetCurSel(this->_processCombo,
+					ComboBox_GetCount(this->_processCombo) - 1);
 			}
 		}
 	}
@@ -498,12 +527,14 @@ class App2Clap : public BasePlugin {
 	HWND _processCombo = nullptr;
 	// The string by which to filter processes.
 	std::wstring _filter;
-	// The process ids we have found.
-	std::vector<DWORD> _pids;
+	// The processes we have found.
+	std::vector<Process> _processes;
 	// The chosen pid.
 	DWORD _pid = 0;
 	// Whether to include audio from this pid or exclude audio from this pid.
 	bool _include = true;
+	// Whether to capture the first matching process when reloaded.
+	bool _captureFirstMatching = false;
 	std::thread _captureThread;
 	AutoHandle _captureEvent;
 };
@@ -516,7 +547,7 @@ extern const clap_plugin_descriptor app2ClapDescriptor = {
 	.url = "",
 	.manual_url = "",
 	.support_url = "",
-	.version = "2025.1",
+	.version = "2026.1",
 	.description = "",
 	.features = (const char *[]) {
 		CLAP_PLUGIN_FEATURE_STEREO,

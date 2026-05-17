@@ -50,6 +50,9 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
     This is because input monitoring only affects input via the DAW, not output from a plug-in.
     To prevent captured audio from being heard, you can mute the track or disable the track's send to the master output.
     If you want to hear audio previously recorded on that track instead of the live audio from the captured application, you can temporarily bypass the plug-in.
+10. If you want to automatically capture a process when the plug-in is reloaded, enter the appropriate text into the Filter text box and enable the Capture first matching process when reloaded check box.
+    When the plug-in is reloaded, such as when opening a saved project, the first process matching the filter will be automatically captured.
+    This is useful for saving and quickly applying commonly used configurations.
 
 ### Sending Audio to a Windows Audio Device
 1. Add the `Clap2App` plug-in to a track in your DAW.

@@ -1,7 +1,7 @@
 /*
  * App2Clap
  * Resource script
- * Copyright 2025 james Teh
+ * Copyright 2025-2026 james Teh
  * License: GNU General Public License version 2.0
  */
 
@@ -23,6 +23,7 @@ BEGIN
 	EDITTEXT ID_FILTER, 55, 125, 175, 20
 	PUSHBUTTON "Refresh", ID_REFRESH, 10, 160, 60, 20
 	PUSHBUTTON "Capture", ID_CAPTURE, 80, 160, 60, 20
+	CONTROL "Capture first matching process when reloaded", ID_FIRST, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 10, 190, 220, 20
 END
 
 ID_CLAP2APP_DLG DIALOGEX 0, 0, 250, 250
