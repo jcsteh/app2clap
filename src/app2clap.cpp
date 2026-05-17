@@ -340,13 +340,12 @@ class App2Clap : public BasePlugin {
 		}
 		size_t nBytes = 0;
 		stream->read(stream, &nBytes, sizeof(size_t));
-		if (nBytes == 0) {
-			return true;
+		if (nBytes > 0) {
+			const size_t nChars = nBytes / sizeof(wchar_t);
+			auto filter = std::make_unique<wchar_t[]>(nChars);
+			stream->read(stream, filter.get(), nBytes);
+			this->_filter = std::wstring(filter.get(), nChars);
 		}
-		const size_t nChars = nBytes / sizeof(wchar_t);
-		auto filter = std::make_unique<wchar_t[]>(nChars);
-		stream->read(stream, filter.get(), nBytes);
-		this->_filter = std::wstring(filter.get(), nChars);
 		// Restart the plugin. We will set up the send in activate().
 		this->_host.host()->request_restart(this->_host.host());
 		return true;
