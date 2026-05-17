@@ -77,6 +77,8 @@ struct Process {
 	}
 };
 
+const uint32_t STATE_VERSION = 1;
+
 class App2Clap : public BasePlugin {
 	public:
 	App2Clap(const clap_plugin_descriptor* desc, const clap_host* host)
@@ -305,7 +307,48 @@ class App2Clap : public BasePlugin {
 				BST_CHECKED
 			);
 			this->enableProcessChoice(true);
+			SetDlgItemText(this->_dialog, ID_FILTER, this->_filter.c_str());
 		}
+		return true;
+	}
+
+	bool implementsState() const noexcept override { return true; }
+
+	bool stateSave(const clap_ostream* stream) noexcept override {
+		stream->write(stream, &STATE_VERSION, sizeof(uint32_t));
+		stream->write(stream, &this->_include, sizeof(bool));
+		const bool everything = this->_pid == SYSTEM_PID;
+		stream->write(stream, &everything, sizeof(bool));
+		const size_t nBytes = this->_filter.size() * sizeof(wchar_t);
+		stream->write(stream, &nBytes, sizeof(size_t));
+		const wchar_t* filter = this->_filter.c_str();
+		stream->write(stream, filter, nBytes);
+		return true;
+	}
+
+	bool stateLoad(const clap_istream* stream) noexcept override {
+		uint32_t version = 0;
+		stream->read(stream, &version, sizeof(uint32_t));
+		if (version != STATE_VERSION) {
+			return false;
+		}
+		stream->read(stream, &this->_include, sizeof(bool));
+		bool everything = false;
+		stream->read(stream, &everything, sizeof(bool));
+		if (everything) {
+			this->_pid = SYSTEM_PID;
+		}
+		size_t nBytes = 0;
+		stream->read(stream, &nBytes, sizeof(size_t));
+		if (nBytes == 0) {
+			return true;
+		}
+		const size_t nChars = nBytes / sizeof(wchar_t);
+		auto filter = std::make_unique<wchar_t[]>(nChars);
+		stream->read(stream, filter.get(), nBytes);
+		this->_filter = std::wstring(filter.get(), nChars);
+		// Restart the plugin. We will set up the send in activate().
+		this->_host.host()->request_restart(this->_host.host());
 		return true;
 	}
 
@@ -321,10 +364,17 @@ class App2Clap : public BasePlugin {
 				plugin->enableProcessChoice(!IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING));
 				return TRUE;
 			}
-			if (
-				cid == ID_REFRESH ||
-				(cid == ID_FILTER && HIWORD(wParam) == EN_KILLFOCUS)
-			) {
+			if (cid == ID_FILTER && HIWORD(wParam) == EN_KILLFOCUS) {
+				wchar_t rawFilter[100];
+				GetDlgItemText(dialogHwnd, ID_FILTER, rawFilter, _countof(rawFilter));
+				plugin->_filter = rawFilter;
+				// We want to match case insensitively, so convert to lower case.
+				std::transform(plugin->_filter.begin(), plugin->_filter.end(),
+					plugin->_filter.begin(), std::tolower);
+				plugin->buildProcessList();
+				return TRUE;
+			}
+			if (cid == ID_REFRESH) {
 				plugin->buildProcessList();
 				return TRUE;
 			}
@@ -350,11 +400,6 @@ class App2Clap : public BasePlugin {
 	}
 
 	void buildProcessList() {
-		wchar_t rawFilter[100];
-		GetDlgItemText(this->_dialog, ID_FILTER, rawFilter, _countof(rawFilter));
-		std::wstring filter = rawFilter;
-		// We want to match case insensitively, so convert to lower case.
-		std::transform(filter.begin(), filter.end(), filter.begin(), std::tolower);
 		PROCESSENTRY32 entry;
 		entry.dwSize = sizeof(PROCESSENTRY32);
 		AutoHandle snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -377,12 +422,12 @@ class App2Clap : public BasePlugin {
 		for (const auto& process: processes) {
 			std::wostringstream s;
 			s << process.exe << " " << process.pid;
-			bool include = filter.empty();
+			bool include = this->_filter.empty();
 			if (!include) {
 				// Convert to lower case for match.
 				std::wstring lower = s.str();
 				std::transform(lower.begin(), lower.end(), lower.begin(), std::tolower);
-				include = lower.find(filter) != std::string::npos;
+				include = lower.find(this->_filter) != std::string::npos;
 			}
 			if (include) {
 				ComboBox_AddString(this->_processCombo, s.str().c_str());
@@ -452,6 +497,8 @@ class App2Clap : public BasePlugin {
 	Buffer _buffer{24576};
 	HWND _dialog = nullptr;
 	HWND _processCombo = nullptr;
+	// The string by which to filter processes.
+	std::wstring _filter;
 	// The process ids we have found.
 	std::vector<DWORD> _pids;
 	// The chosen pid.
