@@ -29,30 +29,23 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 ## Usage with a DAW
 
 ### Capturing Audio from an Application
-1. Add the `App2Clap` plug-in to a track in your DAW.
-2. Choose whether you want to capture a specific process only, capture everything except a specific process or capture everything.
+1. Add the `App2Clap` plug-in to the input FX chain of a track in your DAW.
+2. If you want to capture mono audio, ensure that a mono input is selected for that track.
+    Similarly, if you want to capture stereo audio, ensure a stereo input is selected.
+    The specific input doesn't matter; the plug-in will replace the input with the captured audio.
+3. Choose whether you want to capture a specific process only, capture everything except a specific process or capture everything.
     Note that capturing everything could cause feedback, as it may capture the output of your DAW itself.
-3. Select a process from the list.
+4. Select a process from the list.
     You can filter the list to show only certain processes by typing part of the executable name or process id into the Filter text box.
     Processes are sorted so that processes that were created earlier appear first, which means that parent processes appear before their child processes.
     This is useful when dealing with applications that create multiple processes.
-4. Press Capture to start capturing.
-5. If you want to capture a different process, change the settings and press Capture again.
-6. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
-7. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
-    In REAPER, you do this by opening the track's recording context menu, choosing the Record: output sub-menu and then Record: output (stereo).
-    You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
-    In REAPER, you do this by opening the Record: output menu and choosing Output mode: Pre-Fader (Post-FX).
-8. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
-    If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
-    This may also be true in other DAWs, but this hasn't been confirmed.
-9. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
-    This is because input monitoring only affects input via the DAW, not output from a plug-in.
-    To prevent captured audio from being heard, you can mute the track or disable the track's send to the master output.
-    If you want to hear audio previously recorded on that track instead of the live audio from the captured application, you can temporarily bypass the plug-in.
-10. If you want to automatically capture a process when the plug-in is reloaded, enter the appropriate text into the Filter text box and enable the Capture first matching process when reloaded check box.
+5. Press Capture to start capturing.
+6. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
+7. If you want to capture a different process, change the settings in the plug-in and press Capture again.
+8. If you want to automatically capture a process when the plug-in is reloaded, enter the appropriate text into the Filter text box and enable the Capture first matching process when reloaded check box.
     When the plug-in is reloaded, such as when opening a saved project, the first process matching the filter will be automatically captured.
     This is useful for saving and quickly applying commonly used configurations.
+9. To capture multiple, separate processes, use separate instances of the plug-in on separate tracks.
 
 ### Sending Audio to a Windows Audio Device
 1. Add the `Clap2App` plug-in to a track in your DAW.
@@ -62,22 +55,15 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 5. To output to multiple devices, use separate instances of the plug-in.
 
 ### Capturing Audio from a Windows Audio Device
-1. Add the `In2Clap` plug-in to a track in your DAW.
-2. Select an input device from the list.
-3. Press Capture to start capturing.
-4. If you want to change the input device, change the settings and press Capture again.
-5. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.
-6. If you want to record the captured audio, you will need to configure your DAW to record the output of the track, rather than the input.
-    In REAPER, you do this by opening the track's recording context menu, choosing the Record: output sub-menu and then Record: output (stereo).
-    You will most likely want to record the output pre-fader so that the track mute and volume don't affect the recorded audio.
-    In REAPER, you do this by opening the Record: output menu and choosing Output mode: Pre-Fader (Post-FX).
-7. In REAPER, you can decrease the delay (latency) before the live captured audio is played by your DAW by arming the track, regardless of whether you want to record the captured audio.
-    If you want to arm without actually recording, you can set the track to "Record: disable (input monitoring only)".
-    This may also be true in other DAWs, but this hasn't been confirmed.
-8. Disabling input monitoring in your DAW will not prevent captured audio from being heard.
-    This is because input monitoring only affects input via the DAW, not output from a plug-in.
-    To prevent captured audio from being heard, you can mute the track or disable the track's send to the master output.
-    If you want to hear audio previously recorded on that track instead of the live audio from the captured device, you can temporarily bypass the plug-in.
+1. Add the `In2Clap` plug-in to the input FX chain of a track in your DAW.
+2. If you want to capture mono audio, ensure that a mono input is selected for that track.
+    Similarly, if you want to capture stereo audio, ensure a stereo input is selected.
+    The specific input doesn't matter; the plug-in will replace the input with the captured audio.
+3. Select an input device from the list.
+4. Press Capture to start capturing.
+5. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
+6. If you want to change the input device, change the settings in the plug-in and press Capture again.
+7. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.
 
 ## Reporting Issues
 Issues should be reported [on GitHub](https://github.com/jcsteh/app2clap/issues).
