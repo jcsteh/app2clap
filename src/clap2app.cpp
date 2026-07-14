@@ -59,6 +59,7 @@ class Clap2App : public BasePlugin {
 			if (this->_dialog) {
 				CheckDlgButton(this->_dialog, ID_SEND, BST_UNCHECKED);
 			}
+			this->updateControls();
 			this->_render = nullptr;
 			this->_client = nullptr;
 		}
@@ -171,6 +172,7 @@ class Clap2App : public BasePlugin {
 		// The GUI can be closed and reopened while we're sending.
 		CheckDlgButton(this->_dialog, ID_SEND,
 			this->_sending ? BST_CHECKED : BST_UNCHECKED);
+		this->updateControls();
 		return true;
 	}
 
@@ -228,12 +230,22 @@ class Clap2App : public BasePlugin {
 					}
 					plugin->_device = plugin->_devices[choice];
 				}
+				plugin->updateControls();
 				// Restart the plugin. We will start or stop the send in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
 		}
 		return FALSE;
+	}
+
+	// Update which controls are enabled. The device can only be chosen when we
+	// aren't sending.
+	void updateControls() {
+		if (!this->_dialog) {
+			return;
+		}
+		EnableWindow(this->_deviceCombo, !this->_sending);
 	}
 
 	bool startSend(double sampleRate, uint32_t maxFrameCount) {
