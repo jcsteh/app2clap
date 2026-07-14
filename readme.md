@@ -42,6 +42,7 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 5. Press Capture to start capturing.
     Capture stays pressed while you are capturing.
     Press it again to stop.
+    The settings are disabled while you are capturing, as they can't be changed for a capture which is already running.
 6. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
 7. If you want to capture a different process, press Capture to stop, change the settings in the plug-in, then press Capture again to start the new capture.
 8. If you want to automatically capture a process when the plug-in is reloaded, enter the appropriate text into the Filter text box and enable the Capture first matching process when reloaded check box.
@@ -55,6 +56,7 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 3. Press Send to start sending audio from the DAW track to the output device.
     Send stays pressed while you are sending.
     Press it again to stop.
+    The device list is disabled while you are sending, as the output device can't be changed for a send which is already running.
 4. If you want to change the output device, press Send to stop, select the new device, then press Send again to start sending to it.
 5. To output to multiple devices, use separate instances of the plug-in.
 
@@ -67,6 +69,7 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 4. Press Capture to start capturing.
     Capture stays pressed while you are capturing.
     Press it again to stop.
+    The device list is disabled while you are capturing, as the input device can't be changed for a capture which is already running.
 5. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
 6. If you want to change the input device, press Capture to stop, select the new device, then press Capture again to start the new capture.
 7. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.

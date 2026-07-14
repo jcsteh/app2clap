@@ -64,6 +64,7 @@ class In2Clap : public BasePlugin {
 			if (this->_dialog) {
 				CheckDlgButton(this->_dialog, ID_CAPTURE, BST_UNCHECKED);
 			}
+			this->updateControls();
 			this->_capture = nullptr;
 			this->_client = nullptr;
 		}
@@ -153,6 +154,7 @@ class In2Clap : public BasePlugin {
 		// The GUI can be closed and reopened while we're capturing.
 		CheckDlgButton(this->_dialog, ID_CAPTURE,
 			this->_capturing ? BST_CHECKED : BST_UNCHECKED);
+		this->updateControls();
 		return true;
 	}
 
@@ -210,12 +212,22 @@ class In2Clap : public BasePlugin {
 					}
 					plugin->_device = plugin->_devices[choice];
 				}
+				plugin->updateControls();
 				// Restart the plugin. We will start or stop the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
 		}
 		return FALSE;
+	}
+
+	// Update which controls are enabled. The device can only be chosen when we
+	// aren't capturing.
+	void updateControls() {
+		if (!this->_dialog) {
+			return;
+		}
+		EnableWindow(this->_deviceCombo, !this->_capturing);
 	}
 
 	bool startCapture(double sampleRate, uint32_t maxFrameCount) {

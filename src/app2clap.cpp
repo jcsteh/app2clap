@@ -118,6 +118,7 @@ class App2Clap : public BasePlugin {
 			if (this->_dialog) {
 				CheckDlgButton(this->_dialog, ID_CAPTURE, BST_UNCHECKED);
 			}
+			this->updateControls();
 			this->_capture = nullptr;
 			this->_client = nullptr;
 		}
@@ -209,14 +210,12 @@ class App2Clap : public BasePlugin {
 		this->buildProcessList();
 		if (this->_pid == SYSTEM_PID) {
 			CheckDlgButton(this->_dialog, ID_EVERYTHING, BST_CHECKED);
-			this->enableProcessChoice(false);
 		} else {
 			CheckDlgButton(
 				this->_dialog,
 				this->_include ? ID_PROCESS_INCLUDE : ID_PROCESS_EXCLUDE,
 				BST_CHECKED
 			);
-			this->enableProcessChoice(true);
 			SetDlgItemText(this->_dialog, ID_FILTER, this->_filter.c_str());
 			CheckDlgButton(this->_dialog, ID_FIRST,
 				this->_captureFirstMatching ? BST_CHECKED : BST_UNCHECKED);
@@ -224,6 +223,7 @@ class App2Clap : public BasePlugin {
 		// The GUI can be closed and reopened while we're capturing.
 		CheckDlgButton(this->_dialog, ID_CAPTURE,
 			this->_capturing ? BST_CHECKED : BST_UNCHECKED);
+		this->updateControls();
 		return true;
 	}
 
@@ -282,7 +282,7 @@ class App2Clap : public BasePlugin {
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_PROCESS_INCLUDE || cid == ID_PROCESS_EXCLUDE || cid == ID_EVERYTHING) {
-				plugin->enableProcessChoice(!IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING));
+				plugin->updateControls();
 				return TRUE;
 			}
 			if (cid == ID_FIRST) {
@@ -320,6 +320,7 @@ class App2Clap : public BasePlugin {
 						plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
 					}
 				}
+				plugin->updateControls();
 				// Restart the plugin. We will start or stop the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
@@ -543,6 +544,22 @@ class App2Clap : public BasePlugin {
 		EnableWindow(this->_processCombo, enable);
 		EnableWindow(GetDlgItem(this->_dialog, ID_FILTER), enable);
 		EnableWindow(GetDlgItem(this->_dialog, ID_REFRESH), enable);
+	}
+
+	// Update which controls are enabled. The settings can only be changed when we
+	// aren't capturing. The process can only be chosen when we aren't capturing
+	// everything.
+	void updateControls() {
+		if (!this->_dialog) {
+			return;
+		}
+		const bool enable = !this->_capturing;
+		this->enableProcessChoice(
+			enable && !IsDlgButtonChecked(this->_dialog, ID_EVERYTHING));
+		EnableWindow(GetDlgItem(this->_dialog, ID_PROCESS_INCLUDE), enable);
+		EnableWindow(GetDlgItem(this->_dialog, ID_PROCESS_EXCLUDE), enable);
+		EnableWindow(GetDlgItem(this->_dialog, ID_EVERYTHING), enable);
+		EnableWindow(GetDlgItem(this->_dialog, ID_FIRST), enable);
 	}
 
 	CComPtr<IAudioClient> _client;
