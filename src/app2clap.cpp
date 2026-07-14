@@ -109,127 +109,7 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (!this->_pid) {
-			if (!this->_captureFirstMatching || this->_filter.empty()) {
-				// Nothing to capture yet.
-				return false;
-			}
-			// We're capturing the first matching process.
-			this->buildProcessList();
-			if (this->_processes.empty()) {
-				// No matching processes.
-				return false;
-			}
-			this->_pid = this->_processes[0].pid;
-		}
-		AUDIOCLIENT_ACTIVATION_PARAMS params = {
-			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-		};
-		params.ProcessLoopbackParams.TargetProcessId = this->_pid;
-		params.ProcessLoopbackParams.ProcessLoopbackMode =
-			this->_include ?
-			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
-			PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
-		PROPVARIANT propvar = { .vt = VT_BLOB };
-		propvar.blob.cbSize = sizeof(params);
-		propvar.blob.pBlobData = (BYTE*)&params;
-		auto getClient = [&propvar] () -> CComPtr<IAudioClient> {
-			auto completion = std::make_unique<ActivateCompletionHandler>();
-			CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
-			HRESULT hr = ActivateAudioInterfaceAsync(
-				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-				__uuidof(IAudioClient),
-				&propvar,
-				completion.get(),
-				&asyncOp
-			);
-			if (FAILED(hr)) {
-				return nullptr;
-			}
-			completion->wait();
-			HRESULT asyncHr;
-			CComPtr<IUnknown> activated;
-			hr = asyncOp->GetActivateResult(&asyncHr, &activated);
-			if (FAILED(hr) || FAILED(asyncHr)) {
-				return nullptr;
-			}
-			return CComQIPtr<IAudioClient>(activated);
-		};
-		this->_client = getClient();
-		if (!this->_client) {
-			return false;
-		}
-		WAVEFORMATEX format = {
-			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-			.nChannels = NUM_CHANNELS,
-			.nSamplesPerSec = (DWORD)sampleRate,
-			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
-			.nBlockAlign = BYTES_PER_FRAME,
-			.wBitsPerSample = BITS_PER_SAMPLE,
-		};
-		// Contrary to the documentation, IAudioClient::Initialize ignores the buffer
-		// duration here and can return a smaller buffer. We provide it anyway, but
-		// it can't be relied upon.
-		const REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
-			REFTIMES_PER_SEC / sampleRate;
-		HRESULT hr = this->_client->Initialize(
-			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-			AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			bufferDuration, 0, &format, nullptr
-		);
-		if (FAILED(hr)) {
-			return false;
-		}
-		UINT32 bufferSize = 0;
-		this->_client->GetBufferSize(&bufferSize);
-		if (FAILED(hr)) {
-			return false;
-		}
-		AutoHandle event;
-		if (bufferSize * 3 < maxFrameCount) {
-			// Windows will only buffer 3 packets at a time. If the host max frame
-			// count is larger than that, capture audio in a background thread to
-			// avoid continual buffer underruns. Note that the thread is less optimal
-			// (and results in glitches) when the host max frame count is lower.
-			this->_client = getClient();
-			if (!this->_client) {
-				return false;
-			}
-			hr = this->_client->Initialize(
-				AUDCLNT_SHAREMODE_SHARED,
-				AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				bufferDuration, 0, &format, nullptr
-			);
-			if (FAILED(hr)) {
-				return false;
-			}
-			event = CreateEvent(nullptr, false, false, nullptr);
-			hr = this->_client->SetEventHandle(event);
-			if (FAILED(hr)) {
-				return false;
-			}
-		}
-		dbg(
-			"activate: maxFrameCount " << maxFrameCount <<
-			" sampleRate " << sampleRate <<
-			" requested bufferDuration " << bufferDuration <<
-			" received bufferSize " << bufferSize <<
-			" threaded " << (bool)event
-		);
-		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
-		if (FAILED(hr)) {
-			return false;
-		}
-		if (event) {
-			this->_captureEvent =std::move(event);
-			this->_captureThread = std::thread([this] {
-				this->_captureThreadFunc();
-			});
-		}
-		this->_client->Start();
-		return true;
+		return this->startCapture(sampleRate, maxFrameCount);
 	}
 
 	void deactivate() noexcept  override {
@@ -420,6 +300,130 @@ class App2Clap : public BasePlugin {
 			}
 		}
 		return FALSE;
+	}
+
+	bool startCapture(double sampleRate, uint32_t maxFrameCount) {
+		if (!this->_pid) {
+			if (!this->_captureFirstMatching || this->_filter.empty()) {
+				// Nothing to capture yet.
+				return false;
+			}
+			// We're capturing the first matching process.
+			this->buildProcessList();
+			if (this->_processes.empty()) {
+				// No matching processes.
+				return false;
+			}
+			this->_pid = this->_processes[0].pid;
+		}
+		AUDIOCLIENT_ACTIVATION_PARAMS params = {
+			.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
+		};
+		params.ProcessLoopbackParams.TargetProcessId = this->_pid;
+		params.ProcessLoopbackParams.ProcessLoopbackMode =
+			this->_include ?
+			PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE :
+			PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+		PROPVARIANT propvar = { .vt = VT_BLOB };
+		propvar.blob.cbSize = sizeof(params);
+		propvar.blob.pBlobData = (BYTE*)&params;
+		auto getClient = [&propvar] () -> CComPtr<IAudioClient> {
+			auto completion = std::make_unique<ActivateCompletionHandler>();
+			CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
+			HRESULT hr = ActivateAudioInterfaceAsync(
+				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+				__uuidof(IAudioClient),
+				&propvar,
+				completion.get(),
+				&asyncOp
+			);
+			if (FAILED(hr)) {
+				return nullptr;
+			}
+			completion->wait();
+			HRESULT asyncHr;
+			CComPtr<IUnknown> activated;
+			hr = asyncOp->GetActivateResult(&asyncHr, &activated);
+			if (FAILED(hr) || FAILED(asyncHr)) {
+				return nullptr;
+			}
+			return CComQIPtr<IAudioClient>(activated);
+		};
+		this->_client = getClient();
+		if (!this->_client) {
+			return false;
+		}
+		WAVEFORMATEX format = {
+			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
+			.nChannels = NUM_CHANNELS,
+			.nSamplesPerSec = (DWORD)sampleRate,
+			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
+			.nBlockAlign = BYTES_PER_FRAME,
+			.wBitsPerSample = BITS_PER_SAMPLE,
+		};
+		// Contrary to the documentation, IAudioClient::Initialize ignores the buffer
+		// duration here and can return a smaller buffer. We provide it anyway, but
+		// it can't be relied upon.
+		const REFERENCE_TIME bufferDuration = (REFERENCE_TIME)maxFrameCount *
+			REFTIMES_PER_SEC / sampleRate;
+		HRESULT hr = this->_client->Initialize(
+			AUDCLNT_SHAREMODE_SHARED,
+			AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+			AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			bufferDuration, 0, &format, nullptr
+		);
+		if (FAILED(hr)) {
+			return false;
+		}
+		UINT32 bufferSize = 0;
+		this->_client->GetBufferSize(&bufferSize);
+		if (FAILED(hr)) {
+			return false;
+		}
+		AutoHandle event;
+		if (bufferSize * 3 < maxFrameCount) {
+			// Windows will only buffer 3 packets at a time. If the host max frame
+			// count is larger than that, capture audio in a background thread to
+			// avoid continual buffer underruns. Note that the thread is less optimal
+			// (and results in glitches) when the host max frame count is lower.
+			this->_client = getClient();
+			if (!this->_client) {
+				return false;
+			}
+			hr = this->_client->Initialize(
+				AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+				bufferDuration, 0, &format, nullptr
+			);
+			if (FAILED(hr)) {
+				return false;
+			}
+			event = CreateEvent(nullptr, false, false, nullptr);
+			hr = this->_client->SetEventHandle(event);
+			if (FAILED(hr)) {
+				return false;
+			}
+		}
+		dbg(
+			"activate: maxFrameCount " << maxFrameCount <<
+			" sampleRate " << sampleRate <<
+			" requested bufferDuration " << bufferDuration <<
+			" received bufferSize " << bufferSize <<
+			" threaded " << (bool)event
+		);
+		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
+		if (FAILED(hr)) {
+			return false;
+		}
+		if (event) {
+			this->_captureEvent =std::move(event);
+			this->_captureThread = std::thread([this] {
+				this->_captureThreadFunc();
+			});
+		}
+		this->_client->Start();
+		return true;
 	}
 
 	void buildProcessList() {
