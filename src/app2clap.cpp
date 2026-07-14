@@ -109,7 +109,19 @@ class App2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		return this->startCapture(sampleRate, maxFrameCount);
+		if (!this->_capturing) {
+			return false;
+		}
+		if (!this->startCapture(sampleRate, maxFrameCount)) {
+			// Don't leave the Capture button pressed when we aren't capturing.
+			this->_capturing = false;
+			if (this->_dialog) {
+				CheckDlgButton(this->_dialog, ID_CAPTURE, BST_UNCHECKED);
+			}
+			this->_capture = nullptr;
+			this->_client = nullptr;
+		}
+		return true;
 	}
 
 	void deactivate() noexcept  override {
@@ -125,6 +137,9 @@ class App2Clap : public BasePlugin {
 			this->_captureEvent = nullptr;
 		}
 		this->_capture = nullptr;
+		// Discard audio we captured but never pushed, so we don't push it when we
+		// start capturing again.
+		this->_buffer.clear();
 	}
 
 	clap_process_status process(const clap_process *process) noexcept override {
@@ -206,6 +221,9 @@ class App2Clap : public BasePlugin {
 			CheckDlgButton(this->_dialog, ID_FIRST,
 				this->_captureFirstMatching ? BST_CHECKED : BST_UNCHECKED);
 		}
+		// The GUI can be closed and reopened while we're capturing.
+		CheckDlgButton(this->_dialog, ID_CAPTURE,
+			this->_capturing ? BST_CHECKED : BST_UNCHECKED);
 		return true;
 	}
 
@@ -245,6 +263,11 @@ class App2Clap : public BasePlugin {
 			this->_filter = std::wstring(filter.get(), nChars);
 		}
 		stream->read(stream, &this->_captureFirstMatching, sizeof(bool));
+		// We don't save whether we were capturing, since we don't save the process id
+		// and thus can't resume capturing a specific process. However, we do know what
+		// to capture when capturing everything or the first matching process, so behave
+		// as if the user pressed Capture in those cases.
+		this->_capturing = everything || this->_captureFirstMatching;
 		// Restart the plugin. We will set up the send in activate().
 		this->_host.host()->request_restart(this->_host.host());
 		return true;
@@ -282,19 +305,22 @@ class App2Clap : public BasePlugin {
 				return TRUE;
 			}
 			if (cid == ID_CAPTURE) {
-				if (IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING)) {
-					plugin->_pid = SYSTEM_PID;
-					plugin->_include = false;
-				} else {
-					const int choice = ComboBox_GetCurSel(plugin->_processCombo);
-					if (choice == CB_ERR) {
-						plugin->_pid = 0;
+				plugin->_capturing = IsDlgButtonChecked(dialogHwnd, ID_CAPTURE);
+				if (plugin->_capturing) {
+					if (IsDlgButtonChecked(dialogHwnd, ID_EVERYTHING)) {
+						plugin->_pid = SYSTEM_PID;
+						plugin->_include = false;
 					} else {
-						plugin->_pid = plugin->_processes[choice].pid;
+						const int choice = ComboBox_GetCurSel(plugin->_processCombo);
+						if (choice == CB_ERR) {
+							plugin->_pid = 0;
+						} else {
+							plugin->_pid = plugin->_processes[choice].pid;
+						}
+						plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
 					}
-					plugin->_include = IsDlgButtonChecked(dialogHwnd, ID_PROCESS_INCLUDE);
 				}
-				// Restart the plugin. We will set up the capture in activate().
+				// Restart the plugin. We will start or stop the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
@@ -539,6 +565,8 @@ class App2Clap : public BasePlugin {
 	bool _include = true;
 	// Whether to capture the first matching process when reloaded.
 	bool _captureFirstMatching = false;
+	// Whether the user has pressed Capture; i.e. whether we should be capturing.
+	bool _capturing = false;
 	std::thread _captureThread;
 	AutoHandle _captureEvent;
 };

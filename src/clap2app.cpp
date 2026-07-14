@@ -50,7 +50,19 @@ class Clap2App : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		return this->startSend(sampleRate, maxFrameCount);
+		if (!this->_sending) {
+			return false;
+		}
+		if (!this->startSend(sampleRate, maxFrameCount)) {
+			// Don't leave the Send button pressed when we aren't sending.
+			this->_sending = false;
+			if (this->_dialog) {
+				CheckDlgButton(this->_dialog, ID_SEND, BST_UNCHECKED);
+			}
+			this->_render = nullptr;
+			this->_client = nullptr;
+		}
+		return true;
 	}
 
 	void deactivate() noexcept  override {
@@ -136,6 +148,7 @@ class Clap2App : public BasePlugin {
 
 	void guiDestroy() noexcept override {
 		DestroyWindow(this->_dialog);
+		this->_dialog = this->_deviceCombo = nullptr;
 	}
 
 	bool guiShow() noexcept override {
@@ -155,6 +168,9 @@ class Clap2App : public BasePlugin {
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
 		this->_deviceCombo = GetDlgItem(this->_dialog, ID_DEVICE);
 		this->buildDeviceList();
+		// The GUI can be closed and reopened while we're sending.
+		CheckDlgButton(this->_dialog, ID_SEND,
+			this->_sending ? BST_CHECKED : BST_UNCHECKED);
 		return true;
 	}
 
@@ -184,6 +200,9 @@ class Clap2App : public BasePlugin {
 		auto device = std::make_unique<wchar_t[]>(nChars);
 		stream->read(stream, device.get(), nBytes);
 		this->_device = std::wstring(device.get(), nChars);
+		// We only save a device once the user has pressed Send, so behave as if they
+		// pressed it.
+		this->_sending = true;
 		// Restart the plugin. We will set up the send in activate().
 		this->_host.host()->request_restart(this->_host.host());
 		return true;
@@ -198,13 +217,18 @@ class Clap2App : public BasePlugin {
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_SEND) {
-				const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
-				if (choice == CB_ERR) {
-					// The user hasn't chosen a device yet.
-					return TRUE;
+				plugin->_sending = IsDlgButtonChecked(dialogHwnd, ID_SEND);
+				if (plugin->_sending) {
+					const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
+					if (choice == CB_ERR) {
+						// The user hasn't chosen a device yet.
+						plugin->_sending = false;
+						CheckDlgButton(dialogHwnd, ID_SEND, BST_UNCHECKED);
+						return TRUE;
+					}
+					plugin->_device = plugin->_devices[choice];
 				}
-				plugin->_device = plugin->_devices[choice];
-				// Restart the plugin. We will set up the send in activate().
+				// Restart the plugin. We will start or stop the send in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
@@ -342,6 +366,8 @@ class Clap2App : public BasePlugin {
 	std::vector<std::wstring> _devices;
 	// The chosen device.
 	std::wstring _device;
+	// Whether the user has pressed Send; i.e. whether we should be sending.
+	bool _sending = false;
 	// The maximum number of frames that can fit in the render buffer.
 	UINT32 _renderBufferFrames;
 	// The minimum number of frames required to prevent rendering glitches.

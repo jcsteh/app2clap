@@ -55,7 +55,19 @@ class In2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		return this->startCapture(sampleRate, maxFrameCount);
+		if (!this->_capturing) {
+			return false;
+		}
+		if (!this->startCapture(sampleRate, maxFrameCount)) {
+			// Don't leave the Capture button pressed when we aren't capturing.
+			this->_capturing = false;
+			if (this->_dialog) {
+				CheckDlgButton(this->_dialog, ID_CAPTURE, BST_UNCHECKED);
+			}
+			this->_capture = nullptr;
+			this->_client = nullptr;
+		}
+		return true;
 	}
 
 	void deactivate() noexcept  override {
@@ -118,6 +130,7 @@ class In2Clap : public BasePlugin {
 
 	void guiDestroy() noexcept override {
 		DestroyWindow(this->_dialog);
+		this->_dialog = this->_deviceCombo = nullptr;
 	}
 
 	bool guiShow() noexcept override {
@@ -137,6 +150,9 @@ class In2Clap : public BasePlugin {
 		SetWindowLongPtr(this->_dialog, GWLP_USERDATA, (LONG_PTR)this);
 		this->_deviceCombo = GetDlgItem(this->_dialog, ID_DEVICE);
 		this->buildDeviceList();
+		// The GUI can be closed and reopened while we're capturing.
+		CheckDlgButton(this->_dialog, ID_CAPTURE,
+			this->_capturing ? BST_CHECKED : BST_UNCHECKED);
 		return true;
 	}
 
@@ -166,6 +182,9 @@ class In2Clap : public BasePlugin {
 		auto device = std::make_unique<wchar_t[]>(nChars);
 		stream->read(stream, device.get(), nBytes);
 		this->_device = std::wstring(device.get(), nChars);
+		// We only save a device once the user has pressed Capture, so behave as if they
+		// pressed it.
+		this->_capturing = true;
 		// Restart the plugin. We will set up the send in activate().
 		this->_host.host()->request_restart(this->_host.host());
 		return true;
@@ -180,13 +199,18 @@ class In2Clap : public BasePlugin {
 		if (msg == WM_COMMAND) {
 			const WORD cid = LOWORD(wParam);
 			if (cid == ID_CAPTURE) {
-				const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
-				if (choice == CB_ERR) {
-					// The user hasn't chosen a device yet.
-					return TRUE;
+				plugin->_capturing = IsDlgButtonChecked(dialogHwnd, ID_CAPTURE);
+				if (plugin->_capturing) {
+					const int choice = ComboBox_GetCurSel(plugin->_deviceCombo);
+					if (choice == CB_ERR) {
+						// The user hasn't chosen a device yet.
+						plugin->_capturing = false;
+						CheckDlgButton(dialogHwnd, ID_CAPTURE, BST_UNCHECKED);
+						return TRUE;
+					}
+					plugin->_device = plugin->_devices[choice];
 				}
-				plugin->_device = plugin->_devices[choice];
-				// Restart the plugin. We will set up the send in activate().
+				// Restart the plugin. We will start or stop the capture in activate().
 				plugin->_host.host()->request_restart(plugin->_host.host());
 				return TRUE;
 			}
@@ -380,6 +404,8 @@ class In2Clap : public BasePlugin {
 	std::vector<std::wstring> _devices;
 	// The chosen device.
 	std::wstring _device;
+	// Whether the user has pressed Capture; i.e. whether we should be capturing.
+	bool _capturing = false;
 	std::thread _captureThread;
 	AutoHandle _captureEvent;
 };
