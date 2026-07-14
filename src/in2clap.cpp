@@ -55,90 +55,7 @@ class In2Clap : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (this->_device.empty()) {
-			return false;
-		}
-		CComPtr<IMMDeviceEnumerator> enumerator;
-		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
-		if (FAILED(hr)) {
-			return false;
-		}
-		CComPtr<IMMDevice> device;
-		hr = enumerator->GetDevice(this->_device.c_str(), &device);
-		if (FAILED(hr)) {
-			return false;
-		}
-		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
-		if (FAILED(hr)) {
-			return false;
-		}
-		WAVEFORMATEX format = {
-			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-			.nChannels = NUM_CHANNELS,
-			.nSamplesPerSec = (DWORD)sampleRate,
-			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
-			.nBlockAlign = BYTES_PER_FRAME,
-			.wBitsPerSample = BITS_PER_SAMPLE,
-		};
-		// IAudioClient::Initialize respects the buffer size during initialisation.
-		// However, when capturing, it can return a much smaller buffer, so there's
-		// no point in requesting a particular buffer size.
-		hr = this->_client->Initialize(
-			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			0, 0, &format, nullptr
-		);
-		if (FAILED(hr)) {
-			return false;
-		}
-		UINT32 bufferSize = 0;
-		this->_client->GetBufferSize(&bufferSize);
-		if (FAILED(hr)) {
-			return false;
-		}
-		AutoHandle event;
-		if (bufferSize < maxFrameCount) {
-			// The host max frame count is larger than the device buffer. Capture audio
-			// in a background thread to avoid continual buffer underruns. Note that the
-			// thread is less optimal when the host max frame count is lower.
-			hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
-			if (FAILED(hr)) {
-				return false;
-			}
-			hr = this->_client->Initialize(
-				AUDCLNT_SHAREMODE_SHARED,
-				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				0, 0, &format, nullptr
-			);
-			if (FAILED(hr)) {
-				return false;
-			}
-			event = CreateEvent(nullptr, false, false, nullptr);
-			hr = this->_client->SetEventHandle(event);
-			if (FAILED(hr)) {
-				return false;
-			}
-		}
-		dbg(
-			"activate: maxFrameCount " << maxFrameCount <<
-			" sampleRate " << sampleRate <<
-			" received bufferSize " << bufferSize <<
-			" threaded " << (bool)event
-		);
-		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
-		if (FAILED(hr)) {
-			return false;
-		}
-		this->_buffer = Buffer(std::max(bufferSize, maxFrameCount) * 2);
-		if (event) {
-			this->_captureEvent =std::move(event);
-			this->_captureThread = std::thread([this] {
-				this->_captureThreadFunc();
-			});
-		}
-		this->_client->Start();
-		return true;
+		return this->startCapture(sampleRate, maxFrameCount);
 	}
 
 	void deactivate() noexcept  override {
@@ -275,6 +192,93 @@ class In2Clap : public BasePlugin {
 			}
 		}
 		return FALSE;
+	}
+
+	bool startCapture(double sampleRate, uint32_t maxFrameCount) {
+		if (this->_device.empty()) {
+			return false;
+		}
+		CComPtr<IMMDeviceEnumerator> enumerator;
+		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
+		if (FAILED(hr)) {
+			return false;
+		}
+		CComPtr<IMMDevice> device;
+		hr = enumerator->GetDevice(this->_device.c_str(), &device);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+		if (FAILED(hr)) {
+			return false;
+		}
+		WAVEFORMATEX format = {
+			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
+			.nChannels = NUM_CHANNELS,
+			.nSamplesPerSec = (DWORD)sampleRate,
+			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
+			.nBlockAlign = BYTES_PER_FRAME,
+			.wBitsPerSample = BITS_PER_SAMPLE,
+		};
+		// IAudioClient::Initialize respects the buffer size during initialisation.
+		// However, when capturing, it can return a much smaller buffer, so there's
+		// no point in requesting a particular buffer size.
+		hr = this->_client->Initialize(
+			AUDCLNT_SHAREMODE_SHARED,
+			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			0, 0, &format, nullptr
+		);
+		if (FAILED(hr)) {
+			return false;
+		}
+		UINT32 bufferSize = 0;
+		this->_client->GetBufferSize(&bufferSize);
+		if (FAILED(hr)) {
+			return false;
+		}
+		AutoHandle event;
+		if (bufferSize < maxFrameCount) {
+			// The host max frame count is larger than the device buffer. Capture audio
+			// in a background thread to avoid continual buffer underruns. Note that the
+			// thread is less optimal when the host max frame count is lower.
+			hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+			if (FAILED(hr)) {
+				return false;
+			}
+			hr = this->_client->Initialize(
+				AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+				AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+				0, 0, &format, nullptr
+			);
+			if (FAILED(hr)) {
+				return false;
+			}
+			event = CreateEvent(nullptr, false, false, nullptr);
+			hr = this->_client->SetEventHandle(event);
+			if (FAILED(hr)) {
+				return false;
+			}
+		}
+		dbg(
+			"activate: maxFrameCount " << maxFrameCount <<
+			" sampleRate " << sampleRate <<
+			" received bufferSize " << bufferSize <<
+			" threaded " << (bool)event
+		);
+		hr = this->_client->GetService(__uuidof(IAudioCaptureClient), (void**)&this->_capture);
+		if (FAILED(hr)) {
+			return false;
+		}
+		this->_buffer = Buffer(std::max(bufferSize, maxFrameCount) * 2);
+		if (event) {
+			this->_captureEvent =std::move(event);
+			this->_captureThread = std::thread([this] {
+				this->_captureThreadFunc();
+			});
+		}
+		this->_client->Start();
+		return true;
 	}
 
 	void buildDeviceList() {

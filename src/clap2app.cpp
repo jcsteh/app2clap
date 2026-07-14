@@ -50,78 +50,7 @@ class Clap2App : public BasePlugin {
 	}
 
 	bool activate(double sampleRate, uint32_t minFrameCount, uint32_t maxFrameCount) noexcept override {
-		if (this->_device.empty()) {
-			return false;
-		}
-		WAVEFORMATEX format = {
-			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
-			.nChannels = NUM_CHANNELS,
-			.nSamplesPerSec = (DWORD)sampleRate,
-			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
-			.nBlockAlign = BYTES_PER_FRAME,
-			.wBitsPerSample = BITS_PER_SAMPLE,
-		};
-		CComPtr<IMMDeviceEnumerator> enumerator;
-		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
-		if (FAILED(hr)) {
-			return false;
-		}
-		CComPtr<IMMDevice> device;
-		hr = enumerator->GetDevice(this->_device.c_str(), &device);
-		if (FAILED(hr)) {
-			return false;
-		}
-		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
-		if (FAILED(hr)) {
-			return false;
-		}
-		// Get the device's minimum buffer size. We will use this to determine when
-		// we're ready to start playback.
-		hr = this->_client->Initialize(
-			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			0, 0, &format, nullptr
-		);
-		if (FAILED(hr)) {
-			return false;
-		}
-		hr = this->_client->GetBufferSize(&this->_renderMinFrames);
-		if (FAILED(hr)) {
-			return false;
-		}
-		// The device will still be playing the last host chunk when we send another
-		// one. It can also take a while to begin playback. Therefore, use a large
-		// buffer. This makes playback more tolerant to other unanticipated causes of
-		// underruns too.
-		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
-		if (FAILED(hr)) {
-			return false;
-		}
-		const REFERENCE_TIME bufferDuration = REFTIMES_PER_SEC * 5;
-		hr = this->_client->Initialize(
-			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-			bufferDuration, 0, &format, nullptr
-		);
-		if (FAILED(hr)) {
-			return false;
-		}
-		hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
-		if (FAILED(hr)) {
-			return false;
-		}
-		dbg(
-			"activate maxFrameCount " << maxFrameCount <<
-			" sampleRate " << sampleRate <<
-			" requested bufferDuration " << bufferDuration <<
-			" _renderMinFrames " << this->_renderMinFrames <<
-			" _renderBufferFrames " << this->_renderBufferFrames
-		);
-		hr = this->_client->GetService(__uuidof(IAudioRenderClient), (void**)&this->_render);
-		if (FAILED(hr)) {
-			return false;
-		}
-		return true;
+		return this->startSend(sampleRate, maxFrameCount);
 	}
 
 	void deactivate() noexcept  override {
@@ -281,6 +210,81 @@ class Clap2App : public BasePlugin {
 			}
 		}
 		return FALSE;
+	}
+
+	bool startSend(double sampleRate, uint32_t maxFrameCount) {
+		if (this->_device.empty()) {
+			return false;
+		}
+		WAVEFORMATEX format = {
+			.wFormatTag = WAVE_FORMAT_IEEE_FLOAT,
+			.nChannels = NUM_CHANNELS,
+			.nSamplesPerSec = (DWORD)sampleRate,
+			.nAvgBytesPerSec = (DWORD)sampleRate * BYTES_PER_FRAME,
+			.nBlockAlign = BYTES_PER_FRAME,
+			.wBitsPerSample = BITS_PER_SAMPLE,
+		};
+		CComPtr<IMMDeviceEnumerator> enumerator;
+		HRESULT hr = enumerator.CoCreateInstance(__uuidof(MMDeviceEnumerator));
+		if (FAILED(hr)) {
+			return false;
+		}
+		CComPtr<IMMDevice> device;
+		hr = enumerator->GetDevice(this->_device.c_str(), &device);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+		if (FAILED(hr)) {
+			return false;
+		}
+		// Get the device's minimum buffer size. We will use this to determine when
+		// we're ready to start playback.
+		hr = this->_client->Initialize(
+			AUDCLNT_SHAREMODE_SHARED,
+			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			0, 0, &format, nullptr
+		);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = this->_client->GetBufferSize(&this->_renderMinFrames);
+		if (FAILED(hr)) {
+			return false;
+		}
+		// The device will still be playing the last host chunk when we send another
+		// one. It can also take a while to begin playback. Therefore, use a large
+		// buffer. This makes playback more tolerant to other unanticipated causes of
+		// underruns too.
+		hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&this->_client);
+		if (FAILED(hr)) {
+			return false;
+		}
+		const REFERENCE_TIME bufferDuration = REFTIMES_PER_SEC * 5;
+		hr = this->_client->Initialize(
+			AUDCLNT_SHAREMODE_SHARED,
+			AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+			bufferDuration, 0, &format, nullptr
+		);
+		if (FAILED(hr)) {
+			return false;
+		}
+		hr = this->_client->GetBufferSize(&this->_renderBufferFrames);
+		if (FAILED(hr)) {
+			return false;
+		}
+		dbg(
+			"activate maxFrameCount " << maxFrameCount <<
+			" sampleRate " << sampleRate <<
+			" requested bufferDuration " << bufferDuration <<
+			" _renderMinFrames " << this->_renderMinFrames <<
+			" _renderBufferFrames " << this->_renderBufferFrames
+		);
+		hr = this->_client->GetService(__uuidof(IAudioRenderClient), (void**)&this->_render);
+		if (FAILED(hr)) {
+			return false;
+		}
+		return true;
 	}
 
 	void buildDeviceList() {
