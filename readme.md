@@ -40,8 +40,10 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
     Processes are sorted so that processes that were created earlier appear first, which means that parent processes appear before their child processes.
     This is useful when dealing with applications that create multiple processes.
 5. Press Capture to start capturing.
+    Capture stays pressed while you are capturing.
+    Press it again to stop.
 6. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
-7. If you want to capture a different process, change the settings in the plug-in and press Capture again.
+7. If you want to capture a different process, press Capture to stop, change the settings in the plug-in, then press Capture again to start the new capture.
 8. If you want to automatically capture a process when the plug-in is reloaded, enter the appropriate text into the Filter text box and enable the Capture first matching process when reloaded check box.
     When the plug-in is reloaded, such as when opening a saved project, the first process matching the filter will be automatically captured.
     This is useful for saving and quickly applying commonly used configurations.
@@ -51,7 +53,9 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
 1. Add the `Clap2App` plug-in to a track in your DAW.
 2. Select an output device from the list.
 3. Press Send to start sending audio from the DAW track to the output device.
-4. If you want to change the output device, change the settings and press Send again.
+    Send stays pressed while you are sending.
+    Press it again to stop.
+4. If you want to change the output device, press Send to stop, select the new device, then press Send again to start sending to it.
 5. To output to multiple devices, use separate instances of the plug-in.
 
 ### Capturing Audio from a Windows Audio Device
@@ -61,8 +65,10 @@ The `CLAP` directory might not exist there yet, in which case you will need to c
     The specific input doesn't matter; the plug-in will replace the input with the captured audio.
 3. Select an input device from the list.
 4. Press Capture to start capturing.
+    Capture stays pressed while you are capturing.
+    Press it again to stop.
 5. To prevent the captured audio from being echoed by your DAW, you can disable input monitoring in your DAW.
-6. If you want to change the input device, change the settings in the plug-in and press Capture again.
+6. If you want to change the input device, press Capture to stop, select the new device, then press Capture again to start the new capture.
 7. To capture multiple, separate devices, use separate instances of the plug-in on separate tracks.
 
 ## Reporting Issues
