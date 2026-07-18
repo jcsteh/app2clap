@@ -5,7 +5,7 @@
 <!--endDownload-->
 
 - Author: James Teh &lt;jamie@jantrid.net&gt;
-- Copyright: 2025 James Teh
+- Copyright: 2025-2026 James Teh
 - License: GNU General Public License version 2.0
 
 App2Clap provides three CLAP plug-ins:
