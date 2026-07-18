@@ -355,19 +355,19 @@ class App2Clap : public BasePlugin {
 		propvar.blob.cbSize = sizeof(params);
 		propvar.blob.pBlobData = (BYTE*)&params;
 		auto getClient = [&propvar] () -> CComPtr<IAudioClient> {
-			auto completion = std::make_unique<ActivateCompletionHandler>();
+			ActivateCompletionHandler completion;
 			CComPtr<IActivateAudioInterfaceAsyncOperation> asyncOp;
 			HRESULT hr = ActivateAudioInterfaceAsync(
 				VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
 				__uuidof(IAudioClient),
 				&propvar,
-				completion.get(),
+				&completion,
 				&asyncOp
 			);
 			if (FAILED(hr)) {
 				return nullptr;
 			}
-			completion->wait();
+			completion.wait();
 			HRESULT asyncHr;
 			CComPtr<IUnknown> activated;
 			hr = asyncOp->GetActivateResult(&asyncHr, &activated);
